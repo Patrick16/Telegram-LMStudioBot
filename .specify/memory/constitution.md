@@ -1,50 +1,51 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+
+<!--
+Sync Impact Report
+------------------
+Version change: (none) → 1.0.0
+List of modified principles: All placeholders replaced with concrete rules for Telegram app development
+Added sections: All (Core Principles, Constraints, Workflow, Governance)
+Removed sections: None
+Templates requiring updates: plan-template.md (✅ updated), spec-template.md (✅ updated), tasks-template.md (✅ updated)
+Follow-up TODOs: None
+-->
+
+# LMStudioBot Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Security & Privacy First
+All code MUST protect user data and credentials. Sensitive information (tokens, user IDs, messages) MUST NOT be logged or exposed. All API keys and secrets MUST be stored in environment variables or secure vaults, never hardcoded. User consent and privacy requirements MUST be respected at all times.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Telegram API Discipline
+All interactions with the Telegram API MUST use official libraries (e.g., python-telegram-bot, Telethon, aiogram) and follow Telegram's rate limits and best practices. Bots MUST handle API errors gracefully and implement exponential backoff for retries. Only documented Telegram features are permitted.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Robust Error Handling & Validation
+All user input MUST be validated before processing. The application MUST handle all known error cases (network, API, logic) with clear user feedback and safe fallback behavior. Unhandled exceptions are forbidden in production code.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Test Coverage & Automation
+All core logic MUST be covered by automated tests (unit and integration). Pull requests MUST include or update tests for new features and bug fixes. CI/CD pipelines MUST run all tests before deployment.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Logging & Observability
+Structured logging (with timestamps, severity, and context) is REQUIRED for all critical actions and errors. Logs MUST NOT contain sensitive data. Application health and key metrics (e.g., uptime, error rates, message throughput) MUST be observable via logs or monitoring tools.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Additional Constraints
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- The codebase MUST use Python 3.11+.
+- All dependencies MUST be listed in requirements.txt or pyproject.toml and reviewed for security.
+- External integrations (databases, webhooks, etc.) MUST be documented and mockable for tests.
+- All third-party code MUST be open source and compatible with the project license.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Workflow
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- All changes MUST be made via pull requests and reviewed by at least one other contributor.
+- Code style MUST follow PEP8 and be checked with linters (e.g., flake8, black).
+- Commits MUST reference related issues or features.
+- Releases MUST be versioned using semantic versioning (MAJOR.MINOR.PATCH).
+- Documentation MUST be updated with every feature or breaking change.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices for LMStudioBot. Amendments require a pull request, explicit documentation of changes, and approval by at least two maintainers. All reviews MUST verify compliance with these rules. The constitution version MUST be incremented according to the versioning policy. Compliance reviews are expected at least quarterly.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-04-05 | **Last Amended**: 2026-04-05
