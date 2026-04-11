@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
+from src.bot.handlers.menu import handle_pending_input
 from src.lms import sdk
 from src.storage.models import ChatMessage
 
@@ -14,6 +15,11 @@ STREAM_UPDATE_INTERVAL = 50
 
 @require_owner
 async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Intercept pending input from menu buttons
+    if context.chat_data.get("pending_input"):
+        await handle_pending_input(update, context)
+        return
+
     store = context.bot_data["store"]
     config = context.bot_data["config"]
     session = store.get_active_session()

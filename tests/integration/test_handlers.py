@@ -8,6 +8,11 @@ from src.bot.handlers.chats import (
     removechat_command,
     switchchat_command,
 )
+from src.bot.handlers.menu import (
+    handle_pending_input,
+    menu_callback_handler,
+    menu_command_handler,
+)
 from src.bot.handlers.messages import regenerate_command, text_message_handler
 from src.bot.handlers.models import (
     load_command,
@@ -39,7 +44,10 @@ def store(tmp_path):
 def context(config, store):
     ctx = MagicMock()
     ctx.bot_data = {"config": config, "store": store}
+    ctx.chat_data = {}
     ctx.args = []
+    ctx.bot = MagicMock()
+    ctx.bot.edit_message_text = AsyncMock()
     return ctx
 
 
@@ -357,3 +365,125 @@ async def test_regenerate_success(mock_stream, update, context, store):
     await regenerate_command(update, context)
     session = store.get_active_session()
     assert session.history[-1].content == "New response"
+
+
+# --- T033: Auth integration for menu ---
+
+@pytest.mark.asyncio
+async def test_menu_command_non_owner(update, context):
+    update.effective_user.id = 99999
+    await menu_command_handler(update, context)
+    reply = update.effective_message.reply_text.call_args[0][0]
+    assert "Access denied" in reply
+
+
+@pytest.mark.asyncio
+async def test_menu_callback_non_owner(update, context):
+    update.effective_user.id = 99999
+    query = MagicMock()
+    query.data = "menu:main"
+    update.callback_query = query
+    await menu_callback_handler(update, context)
+    reply = update.effective_message.reply_text.call_args[0][0]
+    assert "Access denied" in reply
+
+
+# --- T034: /menu clears pending_input (FR-006) ---
+
+@pytest.mark.asyncio
+async def test_menu_clears_pending_input(update, context):
+    context.chat_data["pending_input"] = "models:load"
+    msg = MagicMock()
+    msg.message_id = 42
+    update.effective_message.reply_text = AsyncMock(return_value=msg)
+    await menu_command_handler(update, context)
+    assert context.chat_data["pending_input"] is None
+
+
+# --- T035: text_message_handler delegates to pending_input ---
+
+@pytest.mark.asyncio
+async def test_text_handler_delegates_pending_input(update, context, store):
+    store.create_session("Test")
+    context.chat_data["pending_input"] = "sessions:new"
+    update.effective_message.text = "My New Chat"
+    await text_message_handler(update, context)
+    # Should have created a session via pending input, not done inference
+    assert len(store.list_sessions()) == 2  # original + new
+    assert context.chat_data.get("pending_input") is None
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.messages.sdk.chat_stream")
+async def test_text_handler_proceeds_without_pending(mock_stream, update, context, store):
+    store.create_session("Test")
+    context.chat_data["pending_input"] = None
+    mock_stream.return_value = MockStream(["Hi"])
+    sent_msg = AsyncMock()
+    update.effective_message.reply_text = AsyncMock(return_value=sent_msg)
+    update.effective_message.text = "Hello"
+    await text_message_handler(update, context)
+    mock_stream.assert_called_once()
+
+
+# --- T036: Parity test matrix (SC-003) ---
+
+COMMAND_BUTTON_PARITY = [
+    ("/models", "models:list"),
+    ("/loaded", "models:loaded"),
+    ("/load", "models:load"),
+    ("/unload", "models:unload"),
+    ("/newchat", "sessions:new"),
+    ("/chats", "sessions:list"),
+    ("/switchchat", "sessions:switch:<id>"),
+    ("/removechat", "sessions:confirm_remove:<id>"),
+    ("/setprompt", "settings:prompt"),
+    ("/set temperature", "settings:temperature"),
+    ("/set max_tokens", "settings:max_tokens"),
+    ("/set top_p", "settings:top_p"),
+    ("/regenerate", "inference:regenerate"),
+]
+
+
+def test_parity_matrix_completeness():
+    """Verify every slash command has a corresponding button callback path."""
+    from src.bot.handlers import menu
+    # Check that the menu module has handlers for each callback prefix
+    source = open(menu.__file__).read()
+    for _cmd, cb in COMMAND_BUTTON_PARITY:
+        # Strip dynamic segment for parametric buttons
+        prefix = cb.split("<")[0].rstrip(":")
+        assert prefix in source, f"Missing button path for {_cmd} → {cb}"
+
+
+# --- T037: End-to-end workflow (SC-004) ---
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.menu.cli.list_loaded", new_callable=AsyncMock)
+async def test_e2e_menu_workflow(mock_loaded, update, context, store):
+    """Open menu → loaded models → new chat → (pending input flow)."""
+    # 1. Open menu
+    msg = MagicMock()
+    msg.message_id = 42
+    update.effective_message.reply_text = AsyncMock(return_value=msg)
+    await menu_command_handler(update, context)
+    assert context.chat_data["menu_message_id"] == 42
+
+    # 2. Simulate "loaded models" callback
+    query = MagicMock()
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = MagicMock()
+    query.message.reply_text = AsyncMock()
+    query.data = "models:loaded"
+    update.callback_query = query
+    mock_loaded.return_value = "qwen/qwen3-4b"
+    await menu_callback_handler(update, context)
+    assert "qwen" in query.message.reply_text.call_args[0][0]
+
+    # 3. Create chat via pending input
+    context.chat_data["pending_input"] = "sessions:new"
+    update.effective_message.text = "Test Chat"
+    await handle_pending_input(update, context)
+    assert len(store.list_sessions()) == 1
+    assert context.chat_data.get("pending_input") is None

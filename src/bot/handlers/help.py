@@ -1,7 +1,14 @@
-from telegram import Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
+from src.bot.handlers.menu import menu_command_handler
+
+MENU_REPLY_KEYBOARD = ReplyKeyboardMarkup(
+    [[KeyboardButton("/menu")]],
+    resize_keyboard=True,
+    is_persistent=True,
+)
 
 HELP_TEXT = """🤖 *LMStudioBot* — Control LM Studio from Telegram
 
@@ -31,7 +38,11 @@ Send a photo — Analyze image with vision model
 
 @require_owner
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(HELP_TEXT, parse_mode="Markdown")
+    await update.effective_message.reply_text(
+        "📌 Tap the button below anytime to open the menu.",
+        reply_markup=MENU_REPLY_KEYBOARD,
+    )
+    await menu_command_handler.__wrapped__(update, context)
 
 
 @require_owner
