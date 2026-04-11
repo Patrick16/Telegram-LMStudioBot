@@ -1,7 +1,8 @@
 import asyncio
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
@@ -11,6 +12,36 @@ from src.lms.cli import LmsCliError
 from src.storage.models import LoadConfig
 
 logger = logging.getLogger(__name__)
+
+_CMD_MSG_KEY = "cmd_msg"
+
+
+async def cmd_reply(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    reply_markup=None,
+    parse_mode: str | None = None,
+) -> Message:
+    """Send or edit the single persistent command-response message for this chat.
+
+    Edits the previously stored command message if possible so the chat stays
+    tidy (one response slot per chat). Falls back to a fresh reply when the
+    old message can no longer be edited (deleted, too old, etc.).
+    Always pass a Message object (use update.effective_message for command handlers).
+    """
+    prev: Message | None = context.chat_data.get(_CMD_MSG_KEY)
+    if prev is not None:
+        try:
+            edited = await prev.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            context.chat_data[_CMD_MSG_KEY] = edited
+            return edited
+        except BadRequest:
+            pass  # stale / deleted / unchanged — fall through to fresh message
+
+    sent = await message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    context.chat_data[_CMD_MSG_KEY] = sent
+    return sent
 
 
 def _format_downloaded_list(models) -> str:
@@ -110,11 +141,11 @@ async def _send_load_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> Non
             sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT),
         )
     except Exception:
-        await message.reply_text("❌ Could not connect to LM Studio. Is it running?")
+        await cmd_reply(message, context, "❌ Could not connect to LM Studio. Is it running?")
         return
 
     if not models:
-        await message.reply_text("No models available to load.")
+        await cmd_reply(message, context, "No models available to load.")
         return
 
     # Extract model keys without calling .get_info() to avoid triggering
@@ -126,7 +157,8 @@ async def _send_load_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> Non
     }
     keyboard = _build_load_keyboard(models, loaded_keys)
     note = _build_limit_note(len(models))
-    await message.reply_text(
+    await cmd_reply(
+        message, context,
         f"Select a model to load:{note}",
         reply_markup=keyboard,
     )
@@ -139,16 +171,17 @@ async def _send_unload_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         handles = await sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT)
     except Exception:
-        await message.reply_text("❌ Could not connect to LM Studio. Is it running?")
+        await cmd_reply(message, context, "❌ Could not connect to LM Studio. Is it running?")
         return
 
     if not handles:
-        await message.reply_text("No models are currently loaded.")
+        await cmd_reply(message, context, "No models are currently loaded.")
         return
 
     keyboard = _build_unload_keyboard(handles)
     note = _build_limit_note(len(handles))
-    await message.reply_text(
+    await cmd_reply(
+        message, context,
         f"Select a model to unload:{note}",
         reply_markup=keyboard,
     )
@@ -160,13 +193,12 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         models = await sdk.list_downloaded_models(config.LMS_HOST, config.LMS_PORT)
-        await update.effective_message.reply_text(
-            _format_downloaded_list(models),
-            parse_mode="HTML",
+        await cmd_reply(
+            update.effective_message, context, _format_downloaded_list(models), parse_mode="HTML"
         )
     except Exception:
-        await update.effective_message.reply_text(
-            "❌ Could not connect to LM Studio. Is it running?"
+        await cmd_reply(
+            update.effective_message, context, "❌ Could not connect to LM Studio. Is it running?"
         )
 
 
@@ -176,13 +208,12 @@ async def loaded_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         handles = await sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT)
-        await update.effective_message.reply_text(
-            _format_loaded_list(handles),
-            parse_mode="HTML",
+        await cmd_reply(
+            update.effective_message, context, _format_loaded_list(handles), parse_mode="HTML"
         )
     except Exception:
-        await update.effective_message.reply_text(
-            "❌ Could not connect to LM Studio. Is it running?"
+        await cmd_reply(
+            update.effective_message, context, "❌ Could not connect to LM Studio. Is it running?"
         )
 
 
@@ -206,12 +237,14 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 try:
                     gpu_val = float(gpu)
                     if not (0.0 <= gpu_val <= 1.0):
-                        await update.effective_message.reply_text(
+                        await cmd_reply(
+                            update.effective_message, context,
                             "❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0"
                         )
                         return
                 except ValueError:
-                    await update.effective_message.reply_text(
+                    await cmd_reply(
+                        update.effective_message, context,
                         "❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0"
                     )
                     return
@@ -219,10 +252,12 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             try:
                 context_length = int(arg[4:])
                 if context_length < 512:
-                    await update.effective_message.reply_text("❌ Context length must be >= 512")
+                    await cmd_reply(
+                        update.effective_message, context, "❌ Context length must be >= 512"
+                    )
                     return
             except ValueError:
-                await update.effective_message.reply_text("❌ Invalid context length value")
+                await cmd_reply(update.effective_message, context, "❌ Invalid context length value")
                 return
         elif arg.startswith("id="):
             identifier = arg[3:]
@@ -231,9 +266,9 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     try:
         await cli.load_model(model, config)
-        await update.effective_message.reply_text(f"✅ Model {model} loaded successfully.")
+        await cmd_reply(update.effective_message, context, f"✅ Model {model} loaded successfully.")
     except LmsCliError as e:
-        await update.effective_message.reply_text(f"❌ Load failed: {e}")
+        await cmd_reply(update.effective_message, context, f"❌ Load failed: {e}")
 
 
 @require_owner
@@ -247,6 +282,6 @@ async def unload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         await cli.unload_model(identifier)
-        await update.effective_message.reply_text(f"✅ Model {identifier} unloaded.")
+        await cmd_reply(update.effective_message, context, f"✅ Model {identifier} unloaded.")
     except LmsCliError as e:
-        await update.effective_message.reply_text(f"❌ {e}")
+        await cmd_reply(update.effective_message, context, f"❌ {e}")
