@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
+import warnings
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -66,35 +68,132 @@ async def _stream_in_thread(target, *args) -> AsyncGenerator[str, None]:
         yield item
 
 
+_MAX_RETRIES = 3
+
+
 def _sync_respond_stream(session: ChatSession, host: str, port: int):
-    """Sync generator: yields string chunks from lmstudio respond_stream."""
-    client = lmstudio.Client(api_host=f"{host}:{port}")
-    try:
-        model = client.llm.model(session.model_identifier)
-        chat = _build_chat(session)
-        config = _build_config(session)
-        for fragment in model.respond_stream(chat, config=config):
-            yield fragment.content
-    finally:
-        client.close()
+    """Sync generator: yields string chunks from lmstudio respond_stream.
+
+    Retries up to _MAX_RETRIES times if the connection fails before any tokens
+    are received. If the connection drops mid-stream, ends the generator cleanly
+    so the caller gets the partial response instead of an error.
+    """
+    for attempt in range(_MAX_RETRIES):
+        client = lmstudio.Client(api_host=f"{host}:{port}")
+        tokens_yielded = 0
+        try:
+            model = client.llm.model(session.model_identifier)
+            chat = _build_chat(session)
+            config = _build_config(session)
+            for fragment in model.respond_stream(chat, config=config):
+                tokens_yielded += 1
+                yield fragment.content
+            return  # clean completion
+        except Exception as exc:
+            if tokens_yielded > 0:
+                logger.warning(
+                    "Stream interrupted after %d token(s): %s — returning partial response",
+                    tokens_yielded, exc,
+                )
+                return  # end generator cleanly; caller displays partial response
+            if attempt < _MAX_RETRIES - 1:
+                delay = 2 ** attempt
+                logger.warning(
+                    "Connection attempt %d/%d failed: %s — retrying in %ds…",
+                    attempt + 1, _MAX_RETRIES, exc, delay,
+                )
+                time.sleep(delay)
+            else:
+                raise
+        finally:
+            client.close()
 
 
 def _sync_respond_stream_with_image(
     session: ChatSession, image_path: str, caption: str, host: str, port: int
 ):
-    """Sync generator: yields string chunks from lmstudio respond_stream with image."""
-    client = lmstudio.Client(api_host=f"{host}:{port}")
-    try:
-        model = client.llm.model(session.model_identifier)
-        image_handle = lmstudio.prepare_image(image_path)
-        chat = _build_chat(session)
-        user_content = caption or "What do you see in this image?"
-        chat.add_user_message(user_content, images=[image_handle])
-        config = _build_config(session)
-        for fragment in model.respond_stream(chat, config=config):
-            yield fragment.content
-    finally:
-        client.close()
+    """Sync generator: yields string chunks from lmstudio respond_stream with image.
+
+    Same retry/partial-response behaviour as _sync_respond_stream.
+    """
+    for attempt in range(_MAX_RETRIES):
+        client = lmstudio.Client(api_host=f"{host}:{port}")
+        tokens_yielded = 0
+        try:
+            model = client.llm.model(session.model_identifier)
+            image_handle = lmstudio.prepare_image(image_path)
+            chat = _build_chat(session)
+            user_content = caption or "What do you see in this image?"
+            chat.add_user_message(user_content, images=[image_handle])
+            config = _build_config(session)
+            for fragment in model.respond_stream(chat, config=config):
+                tokens_yielded += 1
+                yield fragment.content
+            return  # clean completion
+        except Exception as exc:
+            if tokens_yielded > 0:
+                logger.warning(
+                    "Vision stream interrupted after %d token(s): %s — returning partial response",
+                    tokens_yielded, exc,
+                )
+                return  # end generator cleanly; caller displays partial response
+            if attempt < _MAX_RETRIES - 1:
+                delay = 2 ** attempt
+                logger.warning(
+                    "Vision connection attempt %d/%d failed: %s — retrying in %ds…",
+                    attempt + 1, _MAX_RETRIES, exc, delay,
+                )
+                time.sleep(delay)
+            else:
+                raise
+        finally:
+            client.close()
+
+
+async def list_downloaded_models(
+    host: str = "localhost", port: int = 1234
+) -> list[Any]:
+    """Return all downloaded models from the local LM Studio instance."""
+
+    def _sync() -> list[Any]:
+        # Suppress RuntimeWarning from lmstudio SDK about unawaited coroutines
+        # when handling websocket reconnection failures (known SDK issue)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                message="coroutine.*was never awaited",
+            )
+            client = lmstudio.Client(api_host=f"{host}:{port}")
+            try:
+                return list(client.list_downloaded_models())
+            finally:
+                client.close()
+
+    return await asyncio.to_thread(_sync)
+
+
+async def list_loaded_models(
+    host: str = "localhost", port: int = 1234
+) -> list[Any]:
+    """Return all currently loaded models from the local LM Studio instance."""
+
+    def _sync() -> list[Any]:
+        # Suppress RuntimeWarning from lmstudio SDK about unawaited coroutines
+        # when handling websocket reconnection failures (known SDK issue)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                message="coroutine.*was never awaited",
+            )
+            client = lmstudio.Client(api_host=f"{host}:{port}")
+            try:
+                return list(client.list_loaded_models())
+            finally:
+                client.close()
+
+    return await asyncio.to_thread(_sync)
 
 
 async def chat_stream(

@@ -48,4 +48,4 @@ async def load_model(model: str, config: LoadConfig | None = None) -> str:
 
 
 async def unload_model(identifier: str) -> str:
-    return await _run_lms("unload", identifier, "-y")
+    return await _run_lms("unload", identifier)

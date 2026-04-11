@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -60,38 +61,160 @@ def update():
     return u
 
 
+def make_downloaded_model(model_key: str, size_bytes: int):
+    return SimpleNamespace(
+        model_key=model_key,
+        info=SimpleNamespace(size_bytes=size_bytes),
+    )
+
+
+def make_loaded_handle(identifier: str, size_bytes: int, model_key: str | None = None):
+    info = SimpleNamespace(
+        identifier=identifier,
+        size_bytes=size_bytes,
+        model_key=model_key or identifier,
+    )
+    handle = MagicMock()
+    # Set both direct attributes and get_info() method for compatibility
+    handle.identifier = identifier
+    handle.size_bytes = size_bytes
+    handle.get_info.return_value = info
+    return handle
+
+
 # --- US1: /models, /loaded ---
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.models.cli.list_models", new_callable=AsyncMock)
+@patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
 async def test_models_success(mock_list, update, context):
-    mock_list.return_value = "• qwen/qwen3-4b\n• mistral/mistral-7b"
+    mock_list.return_value = [
+        make_downloaded_model("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024),
+        make_downloaded_model("mistral/mistral-7b", 512 * 1024 * 1024),
+    ]
+
     await models_command(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
-    assert "qwen/qwen3-4b" in reply
-    assert "📦" in reply
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert "📦 Available models:" in reply
+    assert "• qwen/qwen3-4b  3.0 GB" in reply
+    assert "• mistral/mistral-7b  512 MB" in reply
+    assert "|" not in reply
+    assert update.effective_message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.models.cli.list_models", new_callable=AsyncMock)
-async def test_models_unreachable(mock_list, update, context):
-    mock_list.side_effect = LmsCliError("Connection refused")
+@patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
+async def test_models_empty(mock_list, update, context):
+    mock_list.return_value = []
+
     await models_command(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert reply == "No models found."
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
+async def test_models_unreachable(mock_list, update, context):
+    mock_list.side_effect = RuntimeError("Connection refused")
+
+    await models_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
     assert "Could not connect" in reply
 
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.models.cli.list_loaded", new_callable=AsyncMock)
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
 async def test_loaded_success(mock_loaded, update, context):
-    mock_loaded.return_value = "• qwen/qwen3-4b [my-model]"
+    mock_loaded.return_value = [make_loaded_handle("my-model", 3 * 1024 * 1024 * 1024)]
+
     await loaded_command(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
-    assert "qwen/qwen3-4b" in reply
-    assert "🧠" in reply
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert "🧠 Loaded models:" in reply
+    assert "• my-model  3.0 GB" in reply
+    assert "|" not in reply
+    assert update.effective_message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
+async def test_loaded_empty(mock_loaded, update, context):
+    mock_loaded.return_value = []
+
+    await loaded_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert reply == "No models are currently loaded."
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
+async def test_loaded_unreachable(mock_loaded, update, context):
+    mock_loaded.side_effect = RuntimeError("Connection refused")
+
+    await loaded_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert "Could not connect" in reply
 
 
 # --- US2: /load, /unload ---
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
+@patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
+async def test_load_no_args_shows_keyboard(mock_downloaded, mock_loaded, update, context):
+    context.args = []
+    mock_downloaded.return_value = [
+        make_downloaded_model("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024),
+    ]
+    mock_loaded.return_value = [
+        make_loaded_handle("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024, "qwen/qwen3-4b"),
+    ]
+
+    await load_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    keyboard = update.effective_message.reply_text.call_args.kwargs["reply_markup"]
+    assert "Select a model to load:" in reply
+    assert keyboard.inline_keyboard[0][0].text.startswith("🟢 qwen/qwen3-4b")
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
+@patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
+async def test_load_no_args_shows_overflow_note(mock_downloaded, mock_loaded, update, context):
+    context.args = []
+    mock_downloaded.return_value = [
+        make_downloaded_model(f"model-{i}", 1024 * 1024 * 1024) for i in range(120)
+    ]
+    mock_loaded.return_value = []
+
+    await load_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    keyboard = update.effective_message.reply_text.call_args.kwargs["reply_markup"]
+    assert "showing 100 of 120" in reply
+    assert len(keyboard.inline_keyboard) == 100
+
+
+@pytest.mark.asyncio
+@patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
+async def test_unload_no_args_shows_keyboard(mock_loaded, update, context):
+    context.args = []
+    mock_loaded.return_value = [
+        make_loaded_handle("my-model", 1024 * 1024 * 1024),
+    ]
+
+    await unload_command(update, context)
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    keyboard = update.effective_message.reply_text.call_args.kwargs["reply_markup"]
+    assert "Select a model to unload:" in reply
+    assert keyboard.inline_keyboard[0][0].text.startswith("my-model")
+
 
 @pytest.mark.asyncio
 @patch("src.bot.handlers.models.cli.load_model", new_callable=AsyncMock)
@@ -319,18 +442,25 @@ async def test_text_handler_no_chat(update, context):
 @patch("src.bot.handlers.messages.sdk.chat_stream")
 async def test_text_handler_success(mock_stream, update, context, store):
     store.create_session("Test")
-    mock_stream.return_value = MockStream(["Hello", " there"])
+    raw_response = "<think>hidden</think>Hello `there` & <tag>"
+    mock_stream.return_value = MockStream([raw_response])
     sent_msg = AsyncMock()
     update.effective_message.reply_text = AsyncMock(return_value=sent_msg)
     update.effective_message.text = "Hi"
-    # Need to mock the auth check
     update.effective_user.id = 12345
 
     await text_message_handler(update, context)
+
     session = store.get_active_session()
     assert len(session.history) == 2
     assert session.history[0].role == "user"
     assert session.history[1].role == "assistant"
+    assert session.history[1].content == raw_response
+    assert (
+        sent_msg.edit_text.await_args_list[-1].args[0]
+        == "Hello <code>there</code> &amp; &lt;tag&gt;"
+    )
+    assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -358,13 +488,16 @@ async def test_regenerate_success(mock_stream, update, context, store):
     ]
     store.update_session(s)
 
-    mock_stream.return_value = MockStream(["New", " response"])
+    raw_response = "<think>hidden</think>New response"
+    mock_stream.return_value = MockStream([raw_response])
     sent_msg = AsyncMock()
     update.effective_message.reply_text = AsyncMock(return_value=sent_msg)
 
     await regenerate_command(update, context)
     session = store.get_active_session()
-    assert session.history[-1].content == "New response"
+    assert session.history[-1].content == raw_response
+    assert sent_msg.edit_text.await_args_list[-1].args[0] == "New response"
+    assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
 
 
 # --- T033: Auth integration for menu ---
@@ -459,7 +592,7 @@ def test_parity_matrix_completeness():
 # --- T037: End-to-end workflow (SC-004) ---
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.menu.cli.list_loaded", new_callable=AsyncMock)
+@patch("src.bot.handlers.menu.sdk.list_loaded_models", new_callable=AsyncMock)
 async def test_e2e_menu_workflow(mock_loaded, update, context, store):
     """Open menu → loaded models → new chat → (pending input flow)."""
     # 1. Open menu
@@ -477,7 +610,7 @@ async def test_e2e_menu_workflow(mock_loaded, update, context, store):
     query.message.reply_text = AsyncMock()
     query.data = "models:loaded"
     update.callback_query = query
-    mock_loaded.return_value = "qwen/qwen3-4b"
+    mock_loaded.return_value = [make_loaded_handle("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024)]
     await menu_callback_handler(update, context)
     assert "qwen" in query.message.reply_text.call_args[0][0]
 

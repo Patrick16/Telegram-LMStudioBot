@@ -11,7 +11,14 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
-from src.lms import cli
+from src.bot.formatting import format_response, split_message
+from src.bot.handlers.models import (
+    _format_downloaded_list,
+    _format_loaded_list,
+    _send_load_keyboard,
+    _send_unload_keyboard,
+)
+from src.lms import cli, sdk
 from src.lms.cli import LmsCliError
 from src.storage.models import ChatMessage
 
@@ -278,6 +285,14 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await _handle_help_section(query, context, data)
         return
 
+    if data.startswith("models:loadmodel:"):
+        await _handle_load_model_callback(query, context, data)
+        return
+
+    if data.startswith("models:unloadmodel:"):
+        await _handle_unload_model_callback(query, context, data)
+        return
+
     # Model actions
     if data.startswith("models:"):
         await _handle_models_action(query, context, data)
@@ -332,34 +347,60 @@ async def _handle_help_section(query, context, data: str) -> None:
 
 async def _handle_models_action(query, context, data: str) -> None:
     if data == "models:list":
+        config = context.bot_data["config"]
         try:
-            result = await cli.list_models()
-            await query.message.reply_text(f"📦 Available models:\n{result}")
-        except LmsCliError as e:
+            models = await sdk.list_downloaded_models(config.LMS_HOST, config.LMS_PORT)
+            await query.message.reply_text(
+                _format_downloaded_list(models),
+                parse_mode="HTML",
+            )
+        except Exception as e:
             await query.message.reply_text(f"❌ Could not list models: {e}")
         logger.info("Model list requested via menu")
         return
 
     if data == "models:loaded":
+        config = context.bot_data["config"]
         try:
-            result = await cli.list_loaded()
-            await query.message.reply_text(f"🧠 Loaded models:\n{result}")
-        except LmsCliError as e:
+            handles = await sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT)
+            await query.message.reply_text(
+                _format_loaded_list(handles),
+                parse_mode="HTML",
+            )
+        except Exception as e:
             await query.message.reply_text(f"❌ Could not list loaded models: {e}")
         logger.info("Loaded models requested via menu")
         return
 
     if data == "models:load":
-        context.chat_data["pending_input"] = "models:load"
-        await query.message.reply_text("Enter the model identifier to load:")
-        logger.info("Pending input set: models:load")
+        await _send_load_keyboard(query.message, context)
+        logger.info("Load keyboard opened via menu")
         return
 
     if data == "models:unload":
-        context.chat_data["pending_input"] = "models:unload"
-        await query.message.reply_text("Enter the model identifier to unload:")
-        logger.info("Pending input set: models:unload")
+        await _send_unload_keyboard(query.message, context)
+        logger.info("Unload keyboard opened via menu")
         return
+
+
+async def _handle_load_model_callback(query, context, data: str) -> None:
+    model_key = data[len("models:loadmodel:"):]
+    try:
+        await query.edit_message_text(f"⏳ Loading {model_key}…")
+        await cli.load_model(model_key)
+        await query.edit_message_text(f"✅ Loaded {model_key}.")
+    except LmsCliError as e:
+        await query.edit_message_text(f"❌ Failed to load {model_key}: {e}")
+
+
+async def _handle_unload_model_callback(query, context, data: str) -> None:
+    identifier = data[len("models:unloadmodel:"):]
+    try:
+        await query.edit_message_text(f"⏳ Unloading {identifier}…")
+        await cli.unload_model(identifier)
+        await query.edit_message_text(f"✅ Unloaded {identifier}.")
+    except LmsCliError as e:
+        await query.edit_message_text(f"❌ Failed to unload {identifier}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -596,25 +637,27 @@ async def _execute_inference_send(text: str, update: Update, context) -> None:
 
     sent_message = await update.effective_message.reply_text("⏳ Thinking...")
     full_response = ""
-    token_count = 0
 
     try:
         async for chunk in sdk.chat_stream(
             session, host=config.LMS_HOST, port=config.LMS_PORT
         ):
             full_response += chunk
-            token_count += 1
-            if token_count % 50 == 0:
-                try:
-                    await sent_message.edit_text(full_response)
-                except Exception:
-                    pass
 
         if full_response:
+            formatted = format_response(full_response)
+            chunks = split_message(formatted)
             try:
-                await sent_message.edit_text(full_response)
-            except Exception:
-                pass
+                await sent_message.edit_text(chunks[0], parse_mode="HTML")
+            except BadRequest as fmt_err:
+                logger.warning("HTML send failed (%s), retrying as plain text", fmt_err)
+                await sent_message.edit_text(chunks[0])
+            for chunk in chunks[1:]:
+                try:
+                    await sent_message.reply_text(chunk, parse_mode="HTML")
+                except BadRequest as fmt_err:
+                    logger.warning("HTML overflow chunk failed (%s), sending plain", fmt_err)
+                    await sent_message.reply_text(chunk)
             session.history.append(ChatMessage(role="assistant", content=full_response))
             store.update_session(session)
         else:
@@ -648,25 +691,27 @@ async def _execute_inference_regenerate(query, context) -> None:
 
     sent_message = await query.message.reply_text("⏳ Regenerating...")
     full_response = ""
-    token_count = 0
 
     try:
         async for chunk in sdk.chat_stream(
             session, host=config.LMS_HOST, port=config.LMS_PORT
         ):
             full_response += chunk
-            token_count += 1
-            if token_count % 50 == 0:
-                try:
-                    await sent_message.edit_text(full_response)
-                except Exception:
-                    pass
 
         if full_response:
+            formatted = format_response(full_response)
+            chunks = split_message(formatted)
             try:
-                await sent_message.edit_text(full_response)
-            except Exception:
-                pass
+                await sent_message.edit_text(chunks[0], parse_mode="HTML")
+            except BadRequest as fmt_err:
+                logger.warning("HTML send failed (%s), retrying as plain text", fmt_err)
+                await sent_message.edit_text(chunks[0])
+            for chunk in chunks[1:]:
+                try:
+                    await sent_message.reply_text(chunk, parse_mode="HTML")
+                except BadRequest as fmt_err:
+                    logger.warning("HTML overflow chunk failed (%s), sending plain", fmt_err)
+                    await sent_message.reply_text(chunk)
             session.history.append(ChatMessage(role="assistant", content=full_response))
             store.update_session(session)
         else:

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,6 +32,7 @@ from src.bot.handlers.menu import (
     menu_callback_handler,
     menu_command_handler,
 )
+from src.bot.handlers.models import _build_load_keyboard, _build_unload_keyboard
 from src.lms.cli import LmsCliError
 from src.storage.session_store import SessionStoreManager
 
@@ -83,6 +85,27 @@ def query():
     q.message.chat.send_message = AsyncMock()
     q.data = ""
     return q
+
+
+def make_downloaded_model(model_key: str, size_bytes: int):
+    return SimpleNamespace(
+        model_key=model_key,
+        info=SimpleNamespace(size_bytes=size_bytes),
+    )
+
+
+def make_loaded_handle(identifier: str, size_bytes: int, model_key: str | None = None):
+    info = SimpleNamespace(
+        identifier=identifier,
+        size_bytes=size_bytes,
+        model_key=model_key or identifier,
+    )
+    handle = MagicMock()
+    # Set both direct attributes and get_info() method for compatibility
+    handle.identifier = identifier
+    handle.size_bytes = size_bytes
+    handle.get_info.return_value = info
+    return handle
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +255,35 @@ class TestBuildSessionsListKeyboard:
     def test_empty_sessions(self):
         kb = build_sessions_list_keyboard([], "switch")
         assert len(kb.inline_keyboard) == 1  # just back button
+
+
+class TestModelKeyboardBuilders:
+    def test_build_load_keyboard_marks_loaded_and_truncates(self):
+        long_key = "qwen/" + ("x" * 80)
+        kb = _build_load_keyboard(
+            [make_downloaded_model(long_key, 3 * 1024 * 1024 * 1024)],
+            {long_key},
+        )
+        button = kb.inline_keyboard[0][0]
+        assert button.text.startswith("🟢 ")
+        assert len(button.text) <= 64
+
+    def test_build_load_keyboard_caps_at_100_buttons(self):
+        models = [
+            make_downloaded_model(f"model-{i}", 1024 * 1024 * 1024)
+            for i in range(150)
+        ]
+        kb = _build_load_keyboard(models, set())
+        assert len(kb.inline_keyboard) == 100
+
+    def test_build_unload_keyboard_truncates_and_caps(self):
+        handles = [
+            make_loaded_handle(f"model-{i}" + ("x" * 70), 1024 * 1024 * 1024)
+            for i in range(120)
+        ]
+        kb = _build_unload_keyboard(handles)
+        assert len(kb.inline_keyboard) == 100
+        assert len(kb.inline_keyboard[0][0].text) <= 64
 
 
 # ---------------------------------------------------------------------------
@@ -389,38 +441,73 @@ class TestMenuCallbackHandler:
 
 class TestModelsAction:
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.list_models", new_callable=AsyncMock)
+    @patch("src.bot.handlers.menu.sdk.list_downloaded_models", new_callable=AsyncMock)
     async def test_list_models(self, mock_list, query, context):
-        mock_list.return_value = "model1\nmodel2"
+        mock_list.return_value = [make_downloaded_model("model1", 1024 * 1024 * 1024)]
         await _handle_models_action(query, context, "models:list")
         query.message.reply_text.assert_called_once()
-        assert "model1" in query.message.reply_text.call_args[0][0]
+        reply = query.message.reply_text.call_args.args[0]
+        assert "• model1  1.0 GB" in reply
+        assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.list_models", new_callable=AsyncMock)
+    @patch("src.bot.handlers.menu.sdk.list_downloaded_models", new_callable=AsyncMock)
     async def test_list_models_error(self, mock_list, query, context):
-        mock_list.side_effect = LmsCliError("Connection refused")
+        mock_list.side_effect = RuntimeError("Connection refused")
         await _handle_models_action(query, context, "models:list")
         reply = query.message.reply_text.call_args[0][0]
         assert "Could not list" in reply
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.list_loaded", new_callable=AsyncMock)
+    @patch("src.bot.handlers.menu.sdk.list_loaded_models", new_callable=AsyncMock)
     async def test_loaded_models(self, mock_loaded, query, context):
-        mock_loaded.return_value = "model1 [id1]"
+        mock_loaded.return_value = [make_loaded_handle("id1", 1024 * 1024 * 1024)]
         await _handle_models_action(query, context, "models:loaded")
-        assert "model1" in query.message.reply_text.call_args[0][0]
+        reply = query.message.reply_text.call_args.args[0]
+        assert "• id1  1.0 GB" in reply
+        assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
-    async def test_load_sets_pending(self, query, context):
+    @patch("src.bot.handlers.menu._send_load_keyboard", new_callable=AsyncMock)
+    async def test_load_shows_keyboard(self, mock_send_load, query, context):
         await _handle_models_action(query, context, "models:load")
-        assert context.chat_data["pending_input"] == "models:load"
-        query.message.reply_text.assert_called_once()
+        assert context.chat_data.get("pending_input") is None
+        mock_send_load.assert_awaited_once_with(query.message, context)
 
     @pytest.mark.asyncio
-    async def test_unload_sets_pending(self, query, context):
+    @patch("src.bot.handlers.menu._send_unload_keyboard", new_callable=AsyncMock)
+    async def test_unload_shows_keyboard(self, mock_send_unload, query, context):
         await _handle_models_action(query, context, "models:unload")
-        assert context.chat_data["pending_input"] == "models:unload"
+        assert context.chat_data.get("pending_input") is None
+        mock_send_unload.assert_awaited_once_with(query.message, context)
+
+
+class TestModelButtonCallbacks:
+    @pytest.mark.asyncio
+    @patch("src.bot.handlers.menu.cli.load_model", new_callable=AsyncMock)
+    async def test_load_model_callback(self, mock_load, update, query, context):
+        update.callback_query = query
+        query.data = "models:loadmodel:qwen/qwen3-4b"
+
+        await menu_callback_handler(update, context)
+
+        assert query.edit_message_text.await_count == 2
+        assert query.edit_message_text.await_args_list[0].args[0] == "⏳ Loading qwen/qwen3-4b…"
+        assert query.edit_message_text.await_args_list[1].args[0] == "✅ Loaded qwen/qwen3-4b."
+        mock_load.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("src.bot.handlers.menu.cli.unload_model", new_callable=AsyncMock)
+    async def test_unload_model_callback(self, mock_unload, update, query, context):
+        update.callback_query = query
+        query.data = "models:unloadmodel:my-model"
+
+        await menu_callback_handler(update, context)
+
+        assert query.edit_message_text.await_count == 2
+        assert query.edit_message_text.await_args_list[0].args[0] == "⏳ Unloading my-model…"
+        assert query.edit_message_text.await_args_list[1].args[0] == "✅ Unloaded my-model."
+        mock_unload.assert_awaited_once()
 
 
 class TestExecuteModelsLoad:
@@ -570,9 +657,10 @@ class TestExecuteInferenceSend:
         store.create_session("Test")
         context.chat_data["pending_input"] = "inference:send"
 
+        raw_response = "<think>hidden</think>Hello `world`"
+
         async def fake_stream(*a, **kw):
-            yield "Hello"
-            yield " world"
+            yield raw_response
 
         mock_stream.return_value = fake_stream()
         sent_msg = AsyncMock()
@@ -583,6 +671,9 @@ class TestExecuteInferenceSend:
         assert len(session.history) == 2
         assert session.history[0].role == "user"
         assert session.history[1].role == "assistant"
+        assert session.history[1].content == raw_response
+        assert sent_msg.edit_text.await_args_list[-1].args[0] == "Hello <code>world</code>"
+        assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
 
 
 # ---------------------------------------------------------------------------
