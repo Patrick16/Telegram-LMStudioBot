@@ -36,32 +36,29 @@ jobs:
         run: |
           mkdir -p build
           
-          # Create zip archive with exclusions (keep only README.md, exclude all other .md and specs)
-          zip -r build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip . \
-            -x \
-            ".venv/*" \
-            ".git/*" \
-            ".github/*" \
-            "__pycache__/*" \
-            "*.pyc" \
-            ".pytest_cache/*" \
-            ".idea/*" \
-            ".vscode/*" \
-            "*.egg-info/*" \
-            "dist/*" \
-            "build/*" \
-            ".env" \
-            ".env.local" \
-            ".DS_Store" \
-            "Thumbs.db" \
-            ".gitignore" \
-            ".editorconfig" \
-            "specs/*" \
-            "LAUNCH_GUIDE.md" \
-            "RELEASE.md"
-          
-          # Add README.md back to archive
-          zip -u build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip README.md
+          # Use find + zip -@ to reliably exclude paths at any depth
+          find . -type f \
+            ! -path "./.venv/*" \
+            ! -path "./.git/*" \
+            ! -path "./.github/*" \
+            ! -path "*/__pycache__/*" \
+            ! -name "*.pyc" \
+            ! -path "./.pytest_cache/*" \
+            ! -path "./.idea/*" \
+            ! -path "./.vscode/*" \
+            ! -path "./*.egg-info/*" \
+            ! -path "./dist/*" \
+            ! -path "./build/*" \
+            ! -name ".env" \
+            ! -name ".env.local" \
+            ! -name ".DS_Store" \
+            ! -name "Thumbs.db" \
+            ! -name ".gitignore" \
+            ! -name ".editorconfig" \
+            ! -path "./specs/*" \
+            ! -name "LAUNCH_GUIDE.md" \
+            ! -name "RELEASE.md" \
+            | zip build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip -@
           
           ls -lh build/
       
