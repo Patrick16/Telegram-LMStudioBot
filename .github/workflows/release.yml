@@ -1,0 +1,121 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: false
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=${{ github.event.inputs.tag || 'latest' }}
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Archive will be: LMStudioBot-${VERSION}.zip"
+      
+      - name: Create archive (exclude unnecessary files)
+        run: |
+          mkdir -p build
+          
+          # Create zip archive with exclusions (keep only README.md, exclude all other .md and specs)
+          zip -r build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip . \
+            -x \
+            ".venv/*" \
+            ".git/*" \
+            ".github/*" \
+            "__pycache__/*" \
+            "*.pyc" \
+            ".pytest_cache/*" \
+            ".idea/*" \
+            ".vscode/*" \
+            "*.egg-info/*" \
+            "dist/*" \
+            "build/*" \
+            ".env" \
+            ".env.local" \
+            ".DS_Store" \
+            "Thumbs.db" \
+            ".gitignore" \
+            ".editorconfig" \
+            "specs/*" \
+            "LAUNCH_GUIDE.md" \
+            "RELEASE.md"
+          
+          # Add README.md back to archive
+          zip -u build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip README.md
+          
+          ls -lh build/
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          files: build/LMStudioBot-${{ steps.version.outputs.VERSION }}.zip
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          body: |
+            ## LMStudioBot ${{ steps.version.outputs.VERSION }}
+            
+            Ready-to-use archive of the LMStudioBot project.
+            
+            ### Files Included
+            - ✅ All source code (src/)
+            - ✅ All tests (tests/)
+            - ✅ README.md only (minimal documentation)
+            - ✅ Configuration template (.env.example)
+            - ✅ Launch scripts (launch.bat, launch.sh)
+            - ✅ Requirements (requirements.txt)
+            
+            ### Not Included (Excluded for Minimal Archive)
+            - ❌ Virtual environment (.venv/)
+            - ❌ Specifications and guides (specs/, *.md)
+            - ❌ Cache files (__pycache__/, .pytest_cache/)
+            - ❌ Environment file (.env)
+            - ❌ IDE configs (.vscode/, .idea/)
+            - ❌ Git history and workflows (.git/, .github/)
+            
+            ### Quick Start
+            1. Extract the archive
+            2. Copy `.env.example` to `.env` and configure
+            3. Run `launch.bat` (Windows) or `./launch.sh` (Linux/macOS)
+            
+            For detailed setup instructions, see the README.md inside the archive.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-tag:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Create and push tag
+        run: |
+          TAG=${{ github.event.inputs.tag }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $TAG
+          git push origin $TAG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
