@@ -6,6 +6,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
+from src.bot.ephemeral import schedule_delete
 from src.bot.formatting import _format_size
 from src.lms import cli, sdk
 from src.lms.cli import LmsCliError
@@ -22,25 +23,30 @@ async def cmd_reply(
     text: str,
     reply_markup=None,
     parse_mode: str | None = None,
+    ephemeral: bool = True,
 ) -> Message:
     """Send or edit the single persistent command-response message for this chat.
 
     Edits the previously stored command message if possible so the chat stays
     tidy (one response slot per chat). Falls back to a fresh reply when the
     old message can no longer be edited (deleted, too old, etc.).
-    Always pass a Message object (use update.effective_message for command handlers).
+    When *ephemeral* is True, schedules the message for auto-deletion after 5 s.
     """
     prev: Message | None = context.chat_data.get(_CMD_MSG_KEY)
     if prev is not None:
         try:
             edited = await prev.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
             context.chat_data[_CMD_MSG_KEY] = edited
+            if ephemeral:
+                schedule_delete(edited)
             return edited
         except BadRequest:
             pass  # stale / deleted / unchanged — fall through to fresh message
 
     sent = await message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     context.chat_data[_CMD_MSG_KEY] = sent
+    if ephemeral:
+        schedule_delete(sent)
     return sent
 
 

@@ -26,13 +26,15 @@ HELP_TEXT = """🤖 *LMStudioBot* — Control LM Studio from Telegram
 
 *Settings*
 /setprompt `[prompt]` — Set/clear the system prompt
-/set `<setting>` `<value>` — Adjust inference settings (temperature, max\\_tokens, top\\_p)
+/set `<setting>` `<value>` — Adjust inference settings
+  ↳ temperature, max\\_tokens, top\\_p, top\\_k, repeat\\_penalty, stop\\_strings, seed
 
-*Inference*
+*Chat*
 Send any text message — Chat with the model
 Send a photo — Analyze image with vision model
 /regenerate — Regenerate last model answer
 
+/menu — Open the inline menu
 /help — Show this help message"""
 
 

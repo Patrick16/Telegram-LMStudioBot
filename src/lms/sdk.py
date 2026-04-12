@@ -10,18 +10,94 @@ from typing import Any
 
 import lmstudio
 
-from src.storage.models import ChatSession
+from src.storage.models import ChatMessage, ChatSession, HistoryReusePolicy
 
 logger = logging.getLogger(__name__)
 
 _STREAM_SENTINEL = object()
 
 
-def _build_chat(session: ChatSession) -> lmstudio.Chat:
+# ---------------------------------------------------------------------------
+# History trimming helpers
+# ---------------------------------------------------------------------------
+
+def trim_history(
+    messages: list[ChatMessage],
+    policy: HistoryReusePolicy,
+    context_budget: int | None = None,
+) -> list[ChatMessage]:
+    """Return a subset of *messages* according to *policy*.
+
+    ``context_budget`` is an optional rough character budget used by
+    ``fit_budget_recent`` and ``full_if_possible``.  When *None* the
+    budget-aware modes fall back to returning all messages (best effort).
+    """
+    if policy.mode == "off":
+        return []
+
+    if policy.mode == "last_n_pairs":
+        limit = policy.message_pair_limit or 0
+        if limit <= 0:
+            return []
+        # Take last N user+assistant pairs
+        pairs: list[ChatMessage] = []
+        pair_count = 0
+        for msg in reversed(messages):
+            if msg.role == "assistant":
+                pairs.append(msg)
+            elif msg.role == "user":
+                pairs.append(msg)
+                pair_count += 1
+                if pair_count >= limit:
+                    break
+        pairs.reverse()
+        return pairs
+
+    if policy.mode == "fit_budget_recent":
+        if context_budget is None:
+            return list(messages)
+        result: list[ChatMessage] = []
+        total = 0
+        for msg in reversed(messages):
+            total += len(msg.content)
+            if total > context_budget:
+                break
+            result.append(msg)
+        result.reverse()
+        return result
+
+    # full_if_possible
+    if context_budget is None:
+        return list(messages)
+    total_len = sum(len(m.content) for m in messages)
+    if total_len <= context_budget:
+        return list(messages)
+    # Fall back to fit_budget_recent
+    return trim_history(
+        messages,
+        HistoryReusePolicy(mode="fit_budget_recent"),
+        context_budget,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat / config builders
+# ---------------------------------------------------------------------------
+
+def _build_chat(
+    session: ChatSession,
+    history_messages: list[ChatMessage] | None = None,
+) -> lmstudio.Chat:
     chat = lmstudio.Chat()
-    if session.system_prompt:
-        chat.add_system_prompt(session.system_prompt)
-    for msg in session.history:
+    system_prompt = (
+        session.settings.system_prompt
+        if hasattr(session.settings, "system_prompt")
+        else getattr(session, "system_prompt", "")
+    )
+    if system_prompt:
+        chat.add_system_prompt(system_prompt)
+    msgs = history_messages if history_messages is not None else session.history
+    for msg in msgs:
         if msg.role == "user":
             chat.add_user_message(msg.content)
         elif msg.role == "assistant":
@@ -30,15 +106,22 @@ def _build_chat(session: ChatSession) -> lmstudio.Chat:
 
 
 def _build_config(session: ChatSession) -> dict[str, Any] | None:
+    settings = session.settings
     config: dict[str, Any] = {}
-    if session.settings.temperature != 0.7:
-        config["temperature"] = session.settings.temperature
-    if session.settings.max_tokens != -1:
-        config["maxPredictedTokens"] = session.settings.max_tokens
-    if session.settings.top_p != 1.0:
-        config["topP"] = session.settings.top_p
-    if session.settings.stop:
-        config["stop"] = session.settings.stop
+    if settings.temperature != 0.7:
+        config["temperature"] = settings.temperature
+    if settings.max_tokens != -1:
+        config["maxPredictedTokens"] = settings.max_tokens
+    if settings.top_p != 1.0:
+        config["topPSampling"] = settings.top_p
+    if settings.top_k is not None:
+        config["topKSampling"] = settings.top_k
+    if settings.repeat_penalty is not None:
+        config["repeatPenalty"] = settings.repeat_penalty
+    if settings.stop_strings:
+        config["stopStrings"] = settings.stop_strings
+    if settings.seed is not None:
+        config["seed"] = settings.seed
     return config or None
 
 
@@ -71,7 +154,12 @@ async def _stream_in_thread(target, *args) -> AsyncGenerator[str, None]:
 _MAX_RETRIES = 3
 
 
-def _sync_respond_stream(session: ChatSession, host: str, port: int):
+def _sync_respond_stream(
+    session: ChatSession,
+    host: str,
+    port: int,
+    history_messages: list[ChatMessage] | None = None,
+):
     """Sync generator: yields string chunks from lmstudio respond_stream.
 
     Retries up to _MAX_RETRIES times if the connection fails before any tokens
@@ -83,7 +171,7 @@ def _sync_respond_stream(session: ChatSession, host: str, port: int):
         tokens_yielded = 0
         try:
             model = client.llm.model(session.model_identifier)
-            chat = _build_chat(session)
+            chat = _build_chat(session, history_messages)
             config = _build_config(session)
             for fragment in model.respond_stream(chat, config=config):
                 tokens_yielded += 1
@@ -110,7 +198,12 @@ def _sync_respond_stream(session: ChatSession, host: str, port: int):
 
 
 def _sync_respond_stream_with_image(
-    session: ChatSession, image_path: str, caption: str, host: str, port: int
+    session: ChatSession,
+    image_path: str,
+    caption: str,
+    host: str,
+    port: int,
+    history_messages: list[ChatMessage] | None = None,
 ):
     """Sync generator: yields string chunks from lmstudio respond_stream with image.
 
@@ -122,7 +215,7 @@ def _sync_respond_stream_with_image(
         try:
             model = client.llm.model(session.model_identifier)
             image_handle = lmstudio.prepare_image(image_path)
-            chat = _build_chat(session)
+            chat = _build_chat(session, history_messages)
             user_content = caption or "What do you see in this image?"
             chat.add_user_message(user_content, images=[image_handle])
             config = _build_config(session)
@@ -197,9 +290,14 @@ async def list_loaded_models(
 
 
 async def chat_stream(
-    session: ChatSession, host: str = "localhost", port: int = 1234
+    session: ChatSession,
+    host: str = "localhost",
+    port: int = 1234,
+    history_messages: list[ChatMessage] | None = None,
 ) -> AsyncGenerator[str, None]:
-    async for chunk in _stream_in_thread(_sync_respond_stream, session, host, port):
+    async for chunk in _stream_in_thread(
+        _sync_respond_stream, session, host, port, history_messages
+    ):
         yield chunk
 
 
@@ -223,8 +321,9 @@ async def infer_with_image(
     caption: str = "",
     host: str = "localhost",
     port: int = 1234,
+    history_messages: list[ChatMessage] | None = None,
 ) -> AsyncGenerator[str, None]:
     async for chunk in _stream_in_thread(
-        _sync_respond_stream_with_image, session, image_path, caption, host, port
+        _sync_respond_stream_with_image, session, image_path, caption, host, port, history_messages
     ):
         yield chunk

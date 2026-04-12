@@ -9,4 +9,7 @@ class BotConfig(BaseSettings):
     LMS_HOST: str = "localhost"
     LMS_PORT: int = 1234
     SESSIONS_FILE: str = "data/sessions.json"
+    HISTORIES_DIR: str = "data/histories"
+    MODEL_PRESETS_FILE: str = "data/model-presets.json"
+    SESSION_PRESETS_FILE: str = "data/session-presets.json"
     LOG_LEVEL: str = "INFO"

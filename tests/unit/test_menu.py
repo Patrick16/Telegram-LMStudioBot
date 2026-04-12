@@ -5,32 +5,34 @@ import pytest
 from telegram.error import BadRequest
 
 from src.bot.handlers.menu import (
-    _execute_inference_send,
+    _execute_history_policy_update,
+    _execute_model_settings_update,
     _execute_models_load,
     _execute_models_unload,
     _execute_sessions_new,
     _execute_settings_update,
     _handle_help_section,
-    _handle_inference_action,
     _handle_models_action,
     _handle_sessions_action,
     _handle_settings_action,
     _show_section,
     build_back_button,
-    build_help_inference,
     build_help_menu,
     build_help_models,
     build_help_sessions,
     build_help_settings,
-    build_inference_menu,
+    build_history_policy_menu,
     build_main_menu,
+    build_model_settings_menu,
     build_models_menu,
+    build_session_settings_menu,
     build_sessions_list_keyboard,
     build_sessions_menu,
     build_settings_menu,
     handle_pending_input,
     menu_callback_handler,
     menu_command_handler,
+    render_current_settings,
 )
 from src.bot.handlers.models import _build_load_keyboard, _build_unload_keyboard
 from src.lms.cli import LmsCliError
@@ -52,7 +54,10 @@ def config():
 
 @pytest.fixture
 def store(tmp_path):
-    return SessionStoreManager(str(tmp_path / "sessions.json"))
+    return SessionStoreManager(
+        str(tmp_path / "sessions.json"),
+        histories_dir=str(tmp_path / "histories"),
+    )
 
 
 @pytest.fixture
@@ -124,7 +129,7 @@ class TestBuildMainMenu:
         assert "📦 Model Management" in labels
         assert "🧠 Chat Sessions" in labels
         assert "⚙️ Settings" in labels
-        assert "🔮 Inference" in labels
+        assert "🔄 Regenerate" in labels
         assert "❓ Help" in labels
 
     def test_callback_data(self):
@@ -133,7 +138,7 @@ class TestBuildMainMenu:
         assert "menu:models" in data
         assert "menu:sessions" in data
         assert "menu:settings" in data
-        assert "menu:inference" in data
+        assert "menu:regenerate" in data
         assert "menu:help" in data
 
 
@@ -190,33 +195,60 @@ class TestBuildSettingsMenu:
     def test_action_buttons(self):
         kb = build_settings_menu()
         data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        assert "settings:prompt" in data
-        assert "settings:temperature" in data
-        assert "settings:max_tokens" in data
-        assert "settings:top_p" in data
+        assert "settings:current" in data
+        assert "settings:model_menu" in data
+        assert "settings:session_menu" in data
+        assert "settings:model_presets" in data
+        assert "settings:session_presets" in data
+        assert "settings:history_policy" in data
 
 
-class TestBuildInferenceMenu:
-    def test_shows_active_model(self):
-        kb = build_inference_menu("qwen/qwen3-4b")
-        label = kb.inline_keyboard[0][0].text
-        assert "qwen/qwen3-4b" in label
-
-    def test_shows_no_model(self):
-        kb = build_inference_menu(None)
-        label = kb.inline_keyboard[0][0].text
-        assert "No model loaded" in label
+class TestBuildModelSettingsMenu:
+    def test_has_back_button(self):
+        kb = build_model_settings_menu()
+        last_row = kb.inline_keyboard[-1]
+        assert last_row[0].callback_data == "menu:settings"
 
     def test_action_buttons(self):
-        kb = build_inference_menu("model")
+        kb = build_model_settings_menu()
         data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        assert "inference:send" in data
-        assert "inference:regenerate" in data
+        assert "settings:model:gpu" in data
+        assert "settings:model:context_length" in data
+        assert "settings:model:identifier" in data
 
+
+class TestBuildSessionSettingsMenu:
     def test_has_back_button(self):
-        kb = build_inference_menu(None)
+        kb = build_session_settings_menu()
         last_row = kb.inline_keyboard[-1]
-        assert last_row[0].callback_data == "menu:main"
+        assert last_row[0].callback_data == "menu:settings"
+
+    def test_action_buttons(self):
+        kb = build_session_settings_menu()
+        data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        assert "settings:session:prompt" in data
+        assert "settings:session:temperature" in data
+        assert "settings:session:max_tokens" in data
+        assert "settings:session:top_p" in data
+        assert "settings:session:top_k" in data
+        assert "settings:session:repeat_penalty" in data
+        assert "settings:session:stop_strings" in data
+        assert "settings:session:seed" in data
+
+
+class TestBuildHistoryPolicyMenu:
+    def test_has_back_button(self):
+        kb = build_history_policy_menu()
+        last_row = kb.inline_keyboard[-1]
+        assert last_row[0].callback_data == "menu:settings"
+
+    def test_policy_buttons(self):
+        kb = build_history_policy_menu()
+        data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        assert "settings:history_policy:off" in data
+        assert "settings:history_policy:fit_budget_recent" in data
+        assert "settings:history_policy:last_n_pairs" in data
+        assert "settings:history_policy:full_if_possible" in data
 
 
 class TestBuildHelpMenu:
@@ -231,7 +263,6 @@ class TestBuildHelpMenu:
         assert "menu:help:models" in data
         assert "menu:help:sessions" in data
         assert "menu:help:settings" in data
-        assert "menu:help:inference" in data
 
 
 class TestBuildSessionsListKeyboard:
@@ -306,11 +337,6 @@ class TestHelpTopicBuilders:
         assert "Settings" in text
         assert kb.inline_keyboard[0][0].callback_data == "menu:help"
 
-    def test_help_inference(self):
-        text, kb = build_help_inference()
-        assert "Inference" in text
-        assert kb.inline_keyboard[0][0].callback_data == "menu:help"
-
 
 # ---------------------------------------------------------------------------
 # _show_section tests (T008)
@@ -330,14 +356,6 @@ class TestShowSection:
         query.edit_message_text.assert_called_once()
         call_kwargs = query.edit_message_text.call_args[1]
         assert call_kwargs["text"] == "📦 Model Management"
-
-    @pytest.mark.asyncio
-    async def test_show_inference_with_model(self, query, context, store):
-        s = store.create_session("Test")
-        s.model_identifier = "qwen/qwen3-4b"
-        store.update_session(s)
-        await _show_section(query, context, "menu:inference")
-        query.edit_message_text.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_stale_message_recovery(self, query, context):
@@ -613,67 +631,28 @@ class TestExecuteSessionsNew:
 
 
 # ---------------------------------------------------------------------------
-# Inference action tests (T026)
+# Current settings renderer tests
 # ---------------------------------------------------------------------------
 
-class TestInferenceAction:
-    @pytest.mark.asyncio
-    async def test_send_no_session(self, query, context):
-        await _handle_inference_action(query, context, "inference:send")
-        assert "No active chat" in query.message.reply_text.call_args[0][0]
+class TestRenderCurrentSettings:
+    def test_basic_render(self, store):
+        session = store.create_session("Test")
+        text = render_current_settings(session)
+        assert "Current Settings" in text
+        assert "Temperature" in text
+        assert "No model loaded" in text
 
-    @pytest.mark.asyncio
-    async def test_send_sets_pending(self, query, context, store):
-        store.create_session("Test")
-        await _handle_inference_action(query, context, "inference:send")
-        assert context.chat_data["pending_input"] == "inference:send"
+    def test_with_model_info(self, store):
+        session = store.create_session("Test")
+        text = render_current_settings(session, model_info="qwen/qwen3-4b")
+        assert "qwen/qwen3-4b" in text
 
-    @pytest.mark.asyncio
-    async def test_regenerate_no_session(self, query, context):
-        await _handle_inference_action(query, context, "inference:regenerate")
-        assert "No active chat" in query.message.reply_text.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_noop(self, query, context):
-        await _handle_inference_action(query, context, "inference:noop")
-        query.message.reply_text.assert_not_called()
-
-
-class TestExecuteInferenceSend:
-    @pytest.mark.asyncio
-    async def test_empty_message(self, update, context):
-        await _execute_inference_send("", update, context)
-        assert "cannot be empty" in update.effective_message.reply_text.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_no_session(self, update, context):
-        context.chat_data["pending_input"] = "inference:send"
-        await _execute_inference_send("Hello", update, context)
-        assert "No active chat" in update.effective_message.reply_text.call_args[0][0]
-
-    @pytest.mark.asyncio
-    @patch("src.lms.sdk.chat_stream")
-    async def test_success(self, mock_stream, update, context, store):
-        store.create_session("Test")
-        context.chat_data["pending_input"] = "inference:send"
-
-        raw_response = "<think>hidden</think>Hello `world`"
-
-        async def fake_stream(*a, **kw):
-            yield raw_response
-
-        mock_stream.return_value = fake_stream()
-        sent_msg = AsyncMock()
-        update.effective_message.reply_text = AsyncMock(return_value=sent_msg)
-
-        await _execute_inference_send("Hi", update, context)
-        session = store.get_active_session()
-        assert len(session.history) == 2
-        assert session.history[0].role == "user"
-        assert session.history[1].role == "assistant"
-        assert session.history[1].content == raw_response
-        assert sent_msg.edit_text.await_args_list[-1].args[0] == "Hello <code>world</code>"
-        assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
+    def test_truncates_long_prompt(self, store):
+        session = store.create_session("Test")
+        session.settings.system_prompt = "x" * 100
+        store.update_session(session)
+        text = render_current_settings(session)
+        assert "…" in text
 
 
 # ---------------------------------------------------------------------------
@@ -683,17 +662,76 @@ class TestExecuteInferenceSend:
 class TestSettingsAction:
     @pytest.mark.asyncio
     async def test_no_session_guard(self, query, context):
-        await _handle_settings_action(query, context, "settings:temperature")
+        await _handle_settings_action(query, context, "settings:session:temperature")
         assert "No active chat" in query.message.reply_text.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_temperature_sets_pending(self, query, context, store):
         store.create_session("Test")
-        await _handle_settings_action(query, context, "settings:temperature")
-        assert context.chat_data["pending_input"] == "settings:temperature"
+        await _handle_settings_action(query, context, "settings:session:temperature")
+        assert context.chat_data["pending_input"] == "settings:session:temperature"
 
     @pytest.mark.asyncio
     async def test_prompt_sets_pending(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:session:prompt")
+        assert context.chat_data["pending_input"] == "settings:session:prompt"
+
+    @pytest.mark.asyncio
+    async def test_current_settings_shows(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:current")
+        call_kwargs = query.edit_message_text.call_args[1]
+        assert "Current Settings" in call_kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_model_menu_shows(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:model_menu")
+        call_kwargs = query.edit_message_text.call_args[1]
+        assert "Model Settings" in call_kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_session_menu_shows(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:session_menu")
+        call_kwargs = query.edit_message_text.call_args[1]
+        assert "Session Settings" in call_kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_history_policy_shows(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:history_policy")
+        call_kwargs = query.edit_message_text.call_args[1]
+        assert "History Reuse Policy" in call_kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_history_policy_set_off(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:history_policy:off")
+        session = store.get_active_session()
+        assert session.settings.history_policy.mode == "off"
+
+    @pytest.mark.asyncio
+    async def test_history_policy_last_n_pairs_prompts(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:history_policy:last_n_pairs")
+        assert context.chat_data["pending_input"] == "settings:history_policy:last_n_pairs"
+
+    @pytest.mark.asyncio
+    async def test_model_presets_empty(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:model_presets")
+        assert "No model presets" in query.message.reply_text.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_session_presets_empty(self, query, context, store):
+        store.create_session("Test")
+        await _handle_settings_action(query, context, "settings:session_presets")
+        assert "No session presets" in query.message.reply_text.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_legacy_prompt_sets_pending(self, query, context, store):
         store.create_session("Test")
         await _handle_settings_action(query, context, "settings:prompt")
         assert context.chat_data["pending_input"] == "settings:prompt"
@@ -771,18 +809,67 @@ class TestExecuteSettingsUpdate:
         store.create_session("Test")
         await _execute_settings_update("prompt", "Be helpful", update, context)
         session = store.get_active_session()
-        assert session.system_prompt == "Be helpful"
+        assert session.settings.system_prompt == "Be helpful"
         assert "updated" in update.effective_message.reply_text.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_prompt_clear(self, update, context, store):
         s = store.create_session("Test")
-        s.system_prompt = "old"
+        s.settings.system_prompt = "old"
         store.update_session(s)
         await _execute_settings_update("prompt", "", update, context)
         session = store.get_active_session()
-        assert session.system_prompt == ""
+        assert session.settings.system_prompt == ""
         assert "cleared" in update.effective_message.reply_text.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_top_k_valid(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("top_k", "50", update, context)
+        session = store.get_active_session()
+        assert session.settings.top_k == 50
+
+    @pytest.mark.asyncio
+    async def test_top_k_clear(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("top_k", "none", update, context)
+        session = store.get_active_session()
+        assert session.settings.top_k is None
+
+    @pytest.mark.asyncio
+    async def test_repeat_penalty_valid(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("repeat_penalty", "1.1", update, context)
+        session = store.get_active_session()
+        assert session.settings.repeat_penalty == 1.1
+
+    @pytest.mark.asyncio
+    async def test_stop_strings_set(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("stop_strings", "stop1, stop2", update, context)
+        session = store.get_active_session()
+        assert session.settings.stop_strings == ["stop1", "stop2"]
+
+    @pytest.mark.asyncio
+    async def test_stop_strings_clear(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("stop_strings", "none", update, context)
+        session = store.get_active_session()
+        assert session.settings.stop_strings == []
+
+    @pytest.mark.asyncio
+    async def test_seed_valid(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("seed", "42", update, context)
+        session = store.get_active_session()
+        assert session.settings.seed == 42
+
+    @pytest.mark.asyncio
+    async def test_seed_clear(self, update, context, store):
+        store.create_session("Test")
+        await _execute_settings_update("seed", "none", update, context)
+        session = store.get_active_session()
+        assert session.settings.seed is None
 
     @pytest.mark.asyncio
     async def test_no_session(self, update, context):
@@ -847,3 +934,79 @@ class TestHandleHelpSection:
     async def test_unknown_topic(self, query, context):
         await _handle_help_section(query, context, "menu:help:unknown")
         query.edit_message_text.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Model settings update tests
+# ---------------------------------------------------------------------------
+
+class TestExecuteModelSettingsUpdate:
+    @pytest.mark.asyncio
+    async def test_gpu_auto(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("gpu", "auto", update, context)
+        assert context.chat_data["staged_model_settings"]["gpu"] == "auto"
+        assert context.chat_data["pending_input"] is None
+
+    @pytest.mark.asyncio
+    async def test_gpu_max(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("gpu", "max", update, context)
+        assert context.chat_data["staged_model_settings"]["gpu"] == "max"
+
+    @pytest.mark.asyncio
+    async def test_gpu_invalid(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("gpu", "banana", update, context)
+        assert "gpu" not in context.chat_data["staged_model_settings"]
+
+    @pytest.mark.asyncio
+    async def test_context_length_valid(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("context_length", "4096", update, context)
+        assert context.chat_data["staged_model_settings"]["context_length"] == 4096
+
+    @pytest.mark.asyncio
+    async def test_context_length_too_small(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("context_length", "100", update, context)
+        assert "context_length" not in context.chat_data["staged_model_settings"]
+
+    @pytest.mark.asyncio
+    async def test_identifier_set(self, update, context):
+        context.chat_data["staged_model_settings"] = {}
+        await _execute_model_settings_update("identifier", "qwen/qwen3-4b", update, context)
+        assert context.chat_data["staged_model_settings"]["identifier"] == "qwen/qwen3-4b"
+
+
+# ---------------------------------------------------------------------------
+# History policy update tests
+# ---------------------------------------------------------------------------
+
+class TestExecuteHistoryPolicyUpdate:
+    @pytest.mark.asyncio
+    async def test_last_n_pairs(self, update, context, store):
+        store.create_session("Test")
+        context.chat_data["pending_input"] = "settings:history_policy:last_n_pairs"
+        await _execute_history_policy_update(
+            "settings:history_policy:last_n_pairs", "5", update, context
+        )
+        session = store.get_active_session()
+        assert session.settings.history_policy.mode == "last_n_pairs"
+        assert session.settings.history_policy.message_pair_limit == 5
+        assert context.chat_data["pending_input"] is None
+
+    @pytest.mark.asyncio
+    async def test_last_n_pairs_invalid(self, update, context, store):
+        store.create_session("Test")
+        await _execute_history_policy_update(
+            "settings:history_policy:last_n_pairs", "0", update, context
+        )
+        assert "positive integer" in update.effective_message.reply_text.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_session(self, update, context):
+        await _execute_history_policy_update(
+            "settings:history_policy:last_n_pairs", "5", update, context
+        )
+        assert "No active chat" in update.effective_message.reply_text.call_args[0][0]

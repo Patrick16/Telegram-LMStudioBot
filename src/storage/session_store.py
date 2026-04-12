@@ -5,19 +5,39 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from src.storage.models import ChatSession, SessionStore
+from src.storage.models import (
+    ChatMessage,
+    ChatSession,
+    ModelPresetsFile,
+    SessionHistoryFile,
+    SessionPresetsFile,
+    SessionStore,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class SessionStoreManager:
-    def __init__(self, file_path: str):
+    def __init__(
+        self,
+        file_path: str,
+        histories_dir: str = "data/histories",
+        model_presets_file: str = "data/model-presets.json",
+        session_presets_file: str = "data/session-presets.json",
+    ):
         self._file_path = file_path
+        self._histories_dir = histories_dir
+        self._model_presets_file = model_presets_file
+        self._session_presets_file = session_presets_file
         self._store = SessionStore()
 
     @property
     def store(self) -> SessionStore:
         return self._store
+
+    # ------------------------------------------------------------------
+    # Session metadata persistence
+    # ------------------------------------------------------------------
 
     def load(self) -> None:
         if not os.path.exists(self._file_path):
@@ -32,6 +52,10 @@ class SessionStoreManager:
         os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
         with open(self._file_path, "w", encoding="utf-8") as f:
             json.dump(self._store.model_dump(), f, indent=2, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
+    # Session CRUD
+    # ------------------------------------------------------------------
 
     def create_session(self, name: str) -> ChatSession:
         session = ChatSession(name=name)
@@ -63,13 +87,13 @@ class SessionStoreManager:
             remaining = list(self._store.sessions.keys())
             self._store.active_session_id = remaining[0] if remaining else None
         self.save()
+        # Remove history file
+        self._delete_history_file(session_id)
         return True
 
     def resolve_session_id(self, id_or_number: str) -> str | None:
-        # Exact UUID match
         if id_or_number in self._store.sessions:
             return id_or_number
-        # Integer index (1-based) — check before prefix to avoid collisions with UUIDs
         try:
             idx = int(id_or_number) - 1
             sessions_list = list(self._store.sessions.keys())
@@ -78,7 +102,6 @@ class SessionStoreManager:
             return None
         except ValueError:
             pass
-        # UUID prefix match (only for non-integer strings longer than 2 chars)
         if len(id_or_number) > 2:
             for sid in self._store.sessions:
                 if sid.startswith(id_or_number):
@@ -89,3 +112,80 @@ class SessionStoreManager:
         session.updated_at = datetime.now(timezone.utc).isoformat()
         self._store.sessions[session.id] = session
         self.save()
+
+    # ------------------------------------------------------------------
+    # Per-session history file persistence
+    # ------------------------------------------------------------------
+
+    def _history_path(self, session_id: str) -> str:
+        return os.path.join(self._histories_dir, f"{session_id}.json")
+
+    def load_history(self, session_id: str) -> list[ChatMessage]:
+        path = self._history_path(session_id)
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            hfile = SessionHistoryFile.model_validate(data)
+            return hfile.messages
+        except Exception:
+            logger.warning("Failed to load history for session %s, treating as empty", session_id)
+            return []
+
+    def save_history(self, session_id: str, messages: list[ChatMessage]) -> None:
+        os.makedirs(self._histories_dir, exist_ok=True)
+        hfile = SessionHistoryFile(
+            session_id=session_id,
+            messages=messages,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        path = self._history_path(session_id)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(hfile.model_dump(), f, indent=2, ensure_ascii=False)
+
+    def append_message(self, session_id: str, message: ChatMessage) -> None:
+        messages = self.load_history(session_id)
+        messages.append(message)
+        self.save_history(session_id, messages)
+
+    def pop_last_assistant(self, session_id: str) -> ChatMessage | None:
+        messages = self.load_history(session_id)
+        if messages and messages[-1].role == "assistant":
+            removed = messages.pop()
+            self.save_history(session_id, messages)
+            return removed
+        return None
+
+    def _delete_history_file(self, session_id: str) -> None:
+        path = self._history_path(session_id)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Preset loading
+    # ------------------------------------------------------------------
+
+    def load_model_presets(self) -> ModelPresetsFile:
+        if not os.path.exists(self._model_presets_file):
+            return ModelPresetsFile()
+        try:
+            with open(self._model_presets_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return ModelPresetsFile.model_validate(data)
+        except Exception:
+            logger.warning("Failed to load model presets, returning empty")
+            return ModelPresetsFile()
+
+    def load_session_presets(self) -> SessionPresetsFile:
+        if not os.path.exists(self._session_presets_file):
+            return SessionPresetsFile()
+        try:
+            with open(self._session_presets_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return SessionPresetsFile.model_validate(data)
+        except Exception:
+            logger.warning("Failed to load session presets, returning empty")
+            return SessionPresetsFile()

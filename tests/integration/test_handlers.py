@@ -38,7 +38,10 @@ def config():
 
 @pytest.fixture
 def store(tmp_path):
-    return SessionStoreManager(str(tmp_path / "sessions.json"))
+    return SessionStoreManager(
+        str(tmp_path / "sessions.json"),
+        histories_dir=str(tmp_path / "histories"),
+    )
 
 
 @pytest.fixture
@@ -282,7 +285,7 @@ async def test_setprompt_set(update, context, store):
     reply = update.effective_message.reply_text.call_args[0][0]
     assert "updated" in reply
     session = store.get_active_session()
-    assert session.system_prompt == "You are a helper"
+    assert session.settings.system_prompt == "You are a helper"
 
 
 @pytest.mark.asyncio
@@ -452,10 +455,11 @@ async def test_text_handler_success(mock_stream, update, context, store):
     await text_message_handler(update, context)
 
     session = store.get_active_session()
-    assert len(session.history) == 2
-    assert session.history[0].role == "user"
-    assert session.history[1].role == "assistant"
-    assert session.history[1].content == raw_response
+    history = store.load_history(session.id)
+    assert len(history) == 2
+    assert history[0].role == "user"
+    assert history[1].role == "assistant"
+    assert history[1].content == raw_response
     assert (
         sent_msg.edit_text.await_args_list[-1].args[0]
         == "Hello <code>there</code> &amp; &lt;tag&gt;"
@@ -482,11 +486,8 @@ async def test_regenerate_empty_history(update, context, store):
 @patch("src.bot.handlers.messages.sdk.chat_stream")
 async def test_regenerate_success(mock_stream, update, context, store):
     s = store.create_session("Test")
-    s.history = [
-        ChatMessage(role="user", content="Hello"),
-        ChatMessage(role="assistant", content="Old response"),
-    ]
-    store.update_session(s)
+    store.append_message(s.id, ChatMessage(role="user", content="Hello"))
+    store.append_message(s.id, ChatMessage(role="assistant", content="Old response"))
 
     raw_response = "<think>hidden</think>New response"
     mock_stream.return_value = MockStream([raw_response])
@@ -495,7 +496,8 @@ async def test_regenerate_success(mock_stream, update, context, store):
 
     await regenerate_command(update, context)
     session = store.get_active_session()
-    assert session.history[-1].content == raw_response
+    history = store.load_history(session.id)
+    assert history[-1].content == raw_response
     assert sent_msg.edit_text.await_args_list[-1].args[0] == "New response"
     assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
 
@@ -570,11 +572,11 @@ COMMAND_BUTTON_PARITY = [
     ("/chats", "sessions:list"),
     ("/switchchat", "sessions:switch:<id>"),
     ("/removechat", "sessions:confirm_remove:<id>"),
-    ("/setprompt", "settings:prompt"),
-    ("/set temperature", "settings:temperature"),
-    ("/set max_tokens", "settings:max_tokens"),
-    ("/set top_p", "settings:top_p"),
-    ("/regenerate", "inference:regenerate"),
+    ("/setprompt", "settings:session:prompt"),
+    ("/set temperature", "settings:session:temperature"),
+    ("/set max_tokens", "settings:session:max_tokens"),
+    ("/set top_p", "settings:session:top_p"),
+    ("/regenerate", "menu:regenerate"),
 ]
 
 

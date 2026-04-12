@@ -72,7 +72,12 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     user_content = caption or "What do you see in this image?"
-    session.history.append(ChatMessage(role="user", content=user_content, image_path=image_path))
+    user_msg = ChatMessage(role="user", content=user_content, image_path=image_path)
+    store.append_message(session.id, user_msg)
+
+    # Load history and trim by policy for inference
+    history = store.load_history(session.id)
+    trimmed = sdk.trim_history(history, session.settings.history_policy)
 
     sent_message = await update.effective_message.reply_text("⏳ Processing image...")
     full_response = ""
@@ -81,13 +86,16 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         async for chunk in sdk.infer_with_image(
             session, image_path, caption=caption,
             host=config.LMS_HOST, port=config.LMS_PORT,
+            history_messages=trimmed,
         ):
             full_response += chunk
 
         if full_response:
             await _send_response(sent_message, full_response)
-            session.history.append(ChatMessage(role="assistant", content=full_response))
-            store.update_session(session)
+            store.append_message(
+                session.id,
+                ChatMessage(role="assistant", content=full_response),
+            )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:

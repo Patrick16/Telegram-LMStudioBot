@@ -49,19 +49,29 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     user_text = update.effective_message.text
-    session.history.append(ChatMessage(role="user", content=user_text))
+    user_msg = ChatMessage(role="user", content=user_text)
+    store.append_message(session.id, user_msg)
+
+    # Load history and trim by policy for inference
+    history = store.load_history(session.id)
+    trimmed = sdk.trim_history(history, session.settings.history_policy)
 
     sent_message = await update.effective_message.reply_text("⏳ Thinking...")
     full_response = ""
 
     try:
-        async for chunk in sdk.chat_stream(session, host=config.LMS_HOST, port=config.LMS_PORT):
+        async for chunk in sdk.chat_stream(
+            session, host=config.LMS_HOST, port=config.LMS_PORT,
+            history_messages=trimmed,
+        ):
             full_response += chunk
 
         if full_response:
             await _send_response(sent_message, full_response)
-            session.history.append(ChatMessage(role="assistant", content=full_response))
-            store.update_session(session)
+            store.append_message(
+                session.id,
+                ChatMessage(role="assistant", content=full_response),
+            )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:
@@ -79,33 +89,43 @@ async def regenerate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.effective_message.reply_text("❌ No active chat. Use /newchat first.")
         return
 
-    if not session.history:
+    history = store.load_history(session.id)
+
+    if not history:
         await update.effective_message.reply_text(
             "❌ Nothing to regenerate (no messages in this chat)."
         )
         return
 
     # Remove last assistant message if present
-    if session.history[-1].role == "assistant":
-        session.history.pop()
+    if history[-1].role == "assistant":
+        store.pop_last_assistant(session.id)
+        history = history[:-1]
 
-    if not session.history or session.history[-1].role != "user":
+    if not history or history[-1].role != "user":
         await update.effective_message.reply_text(
             "❌ Nothing to regenerate (no messages in this chat)."
         )
         return
 
+    trimmed = sdk.trim_history(history, session.settings.history_policy)
+
     sent_message = await update.effective_message.reply_text("⏳ Regenerating...")
     full_response = ""
 
     try:
-        async for chunk in sdk.chat_stream(session, host=config.LMS_HOST, port=config.LMS_PORT):
+        async for chunk in sdk.chat_stream(
+            session, host=config.LMS_HOST, port=config.LMS_PORT,
+            history_messages=trimmed,
+        ):
             full_response += chunk
 
         if full_response:
             await _send_response(sent_message, full_response)
-            session.history.append(ChatMessage(role="assistant", content=full_response))
-            store.update_session(session)
+            store.append_message(
+                session.id,
+                ChatMessage(role="assistant", content=full_response),
+            )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:

@@ -86,6 +86,10 @@ def main() -> None:
         store = SessionStoreManager(config.SESSIONS_FILE)
         store.load()
 
+        # Ensure preset/history directories exist
+        os.makedirs(config.HISTORIES_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(config.MODEL_PRESETS_FILE), exist_ok=True)
+
         app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
         app.bot_data["config"] = config
