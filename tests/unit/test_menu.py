@@ -422,8 +422,7 @@ class TestMenuCommandHandler:
     async def test_non_owner_denied(self, update, context):
         update.effective_user.id = 99999
         await menu_command_handler(update, context)
-        reply = update.effective_message.reply_text.call_args[0][0]
-        assert "Access denied" in reply
+        update.effective_message.reply_text.assert_not_called()  # ignored silently
 
 
 # ---------------------------------------------------------------------------
@@ -449,8 +448,7 @@ class TestMenuCallbackHandler:
         query.data = "menu:main"
         update.callback_query = query
         await menu_callback_handler(update, context)
-        reply = update.effective_message.reply_text.call_args[0][0]
-        assert "Access denied" in reply
+        update.effective_message.reply_text.assert_not_called()  # ignored silently
 
 
 # ---------------------------------------------------------------------------

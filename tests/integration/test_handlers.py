@@ -442,7 +442,7 @@ async def test_text_handler_no_chat(update, context):
 
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.messages.sdk.chat_stream")
+@patch("src.lms.sdk.chat_stream")
 async def test_text_handler_success(mock_stream, update, context, store):
     store.create_session("Test")
     raw_response = "<think>hidden</think>Hello `there` & <tag>"
@@ -483,7 +483,7 @@ async def test_regenerate_empty_history(update, context, store):
 
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.messages.sdk.chat_stream")
+@patch("src.lms.sdk.chat_stream")
 async def test_regenerate_success(mock_stream, update, context, store):
     s = store.create_session("Test")
     store.append_message(s.id, ChatMessage(role="user", content="Hello"))
@@ -508,8 +508,7 @@ async def test_regenerate_success(mock_stream, update, context, store):
 async def test_menu_command_non_owner(update, context):
     update.effective_user.id = 99999
     await menu_command_handler(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
-    assert "Access denied" in reply
+    update.effective_message.reply_text.assert_not_called()  # non-owners are ignored silently
 
 
 @pytest.mark.asyncio
@@ -519,8 +518,7 @@ async def test_menu_callback_non_owner(update, context):
     query.data = "menu:main"
     update.callback_query = query
     await menu_callback_handler(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
-    assert "Access denied" in reply
+    update.effective_message.reply_text.assert_not_called()  # non-owners are ignored silently
 
 
 # --- T034: /menu clears pending_input (FR-006) ---
@@ -549,7 +547,7 @@ async def test_text_handler_delegates_pending_input(update, context, store):
 
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.messages.sdk.chat_stream")
+@patch("src.lms.sdk.chat_stream")
 async def test_text_handler_proceeds_without_pending(mock_stream, update, context, store):
     store.create_session("Test")
     context.chat_data["pending_input"] = None

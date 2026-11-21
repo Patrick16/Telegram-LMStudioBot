@@ -125,46 +125,81 @@ def _build_config(session: ChatSession) -> dict[str, Any] | None:
     return config or None
 
 
+class StreamInterrupted(Exception):
+    """The connection dropped after some tokens were already produced.
+
+    Raised by the streaming generators *after* every received chunk has been yielded,
+    so the caller keeps the partial text and can tell the user it is incomplete.
+    """
+
+
 async def _stream_in_thread(target, *args) -> AsyncGenerator[str, None]:
-    """Run a sync streaming function in a thread and yield its string chunks."""
+    """Run a sync streaming function in a thread and yield its string chunks.
+
+    If the consumer stops early (``break``, exception or task cancellation) the worker
+    thread is told to stop and the underlying generator is closed, which releases the
+    LM Studio client instead of letting generation run on in the background.
+    """
     queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
+    stop = threading.Event()
+
+    def _put(item) -> None:
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+        except RuntimeError:  # event loop already closed
+            stop.set()
 
     def _run():
+        iterator = None
         try:
-            for chunk in target(*args):
-                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+            iterator = iter(target(*args))
+            for chunk in iterator:
+                if stop.is_set():
+                    break
+                _put(chunk)
         except Exception as exc:
-            loop.call_soon_threadsafe(queue.put_nowait, exc)
+            _put(exc)
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, _STREAM_SENTINEL)
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:  # pragma: no cover - best effort cleanup
+                    logger.debug("Error while closing stream", exc_info=True)
+            _put(_STREAM_SENTINEL)
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
-    while True:
-        item = await queue.get()
-        if item is _STREAM_SENTINEL:
-            break
-        if isinstance(item, Exception):
-            raise item
-        yield item
+    try:
+        while True:
+            item = await queue.get()
+            if item is _STREAM_SENTINEL:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        stop.set()
 
 
 _MAX_RETRIES = 3
 
 
-def _sync_respond_stream(
+def _respond_with_retry(
     session: ChatSession,
     host: str,
     port: int,
     history_messages: list[ChatMessage] | None = None,
+    image_path: str | None = None,
+    caption: str = "",
 ):
-    """Sync generator: yields string chunks from lmstudio respond_stream.
+    """Sync generator: yields string chunks from lmstudio ``respond_stream``.
 
-    Retries up to _MAX_RETRIES times if the connection fails before any tokens
-    are received. If the connection drops mid-stream, ends the generator cleanly
-    so the caller gets the partial response instead of an error.
+    Retries up to ``_MAX_RETRIES`` times if the connection fails before any tokens
+    are received. If it drops mid-stream, raises :class:`StreamInterrupted` after the
+    received chunks were yielded, so the caller can keep and flag the partial answer.
     """
     for attempt in range(_MAX_RETRIES):
         client = lmstudio.Client(api_host=f"{host}:{port}")
@@ -172,18 +207,23 @@ def _sync_respond_stream(
         try:
             model = client.llm.model(session.model_identifier)
             chat = _build_chat(session, history_messages)
+            if image_path is not None:
+                image_handle = lmstudio.prepare_image(image_path)
+                user_content = caption or "What do you see in this image?"
+                chat.add_user_message(user_content, images=[image_handle])
             config = _build_config(session)
             for fragment in model.respond_stream(chat, config=config):
                 tokens_yielded += 1
                 yield fragment.content
             return  # clean completion
+        except GeneratorExit:
+            raise
         except Exception as exc:
             if tokens_yielded > 0:
                 logger.warning(
-                    "Stream interrupted after %d token(s): %s — returning partial response",
-                    tokens_yielded, exc,
+                    "Stream interrupted after %d chunk(s): %s", tokens_yielded, exc,
                 )
-                return  # end generator cleanly; caller displays partial response
+                raise StreamInterrupted(str(exc)) from exc
             if attempt < _MAX_RETRIES - 1:
                 delay = 2 ** attempt
                 logger.warning(
@@ -197,6 +237,16 @@ def _sync_respond_stream(
             client.close()
 
 
+def _sync_respond_stream(
+    session: ChatSession,
+    host: str,
+    port: int,
+    history_messages: list[ChatMessage] | None = None,
+):
+    """Sync generator for a text turn (see :func:`_respond_with_retry`)."""
+    yield from _respond_with_retry(session, host, port, history_messages)
+
+
 def _sync_respond_stream_with_image(
     session: ChatSession,
     image_path: str,
@@ -205,42 +255,10 @@ def _sync_respond_stream_with_image(
     port: int,
     history_messages: list[ChatMessage] | None = None,
 ):
-    """Sync generator: yields string chunks from lmstudio respond_stream with image.
-
-    Same retry/partial-response behaviour as _sync_respond_stream.
-    """
-    for attempt in range(_MAX_RETRIES):
-        client = lmstudio.Client(api_host=f"{host}:{port}")
-        tokens_yielded = 0
-        try:
-            model = client.llm.model(session.model_identifier)
-            image_handle = lmstudio.prepare_image(image_path)
-            chat = _build_chat(session, history_messages)
-            user_content = caption or "What do you see in this image?"
-            chat.add_user_message(user_content, images=[image_handle])
-            config = _build_config(session)
-            for fragment in model.respond_stream(chat, config=config):
-                tokens_yielded += 1
-                yield fragment.content
-            return  # clean completion
-        except Exception as exc:
-            if tokens_yielded > 0:
-                logger.warning(
-                    "Vision stream interrupted after %d token(s): %s — returning partial response",
-                    tokens_yielded, exc,
-                )
-                return  # end generator cleanly; caller displays partial response
-            if attempt < _MAX_RETRIES - 1:
-                delay = 2 ** attempt
-                logger.warning(
-                    "Vision connection attempt %d/%d failed: %s — retrying in %ds…",
-                    attempt + 1, _MAX_RETRIES, exc, delay,
-                )
-                time.sleep(delay)
-            else:
-                raise
-        finally:
-            client.close()
+    """Sync generator for a vision turn (see :func:`_respond_with_retry`)."""
+    yield from _respond_with_retry(
+        session, host, port, history_messages, image_path=image_path, caption=caption
+    )
 
 
 async def list_downloaded_models(

@@ -189,6 +189,20 @@ class SessionStoreManager:
         messages.append(message)
         self.save_history(session_id, messages)
 
+    def append_messages(self, session_id: str, new_messages: list[ChatMessage]) -> None:
+        """Append several messages with a single atomic write (one conversation turn)."""
+        messages = self.load_history(session_id)
+        messages.extend(new_messages)
+        self.save_history(session_id, messages)
+
+    def replace_last_assistant(self, session_id: str, message: ChatMessage) -> None:
+        """Replace the trailing assistant message (or append if there is none) atomically."""
+        messages = self.load_history(session_id)
+        if messages and messages[-1].role == "assistant":
+            messages.pop()
+        messages.append(message)
+        self.save_history(session_id, messages)
+
     def pop_last_assistant(self, session_id: str) -> ChatMessage | None:
         messages = self.load_history(session_id)
         if messages and messages[-1].role == "assistant":

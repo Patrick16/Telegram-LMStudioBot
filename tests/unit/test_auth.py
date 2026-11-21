@@ -47,7 +47,7 @@ async def test_unauthorized_user(context):
     update = _make_update(99999)
     result = await dummy_handler(update, context)
     assert result is None
-    update.effective_message.reply_text.assert_called_once_with("⛔ Access denied.")
+    update.effective_message.reply_text.assert_not_called()  # ignored silently
 
 
 @pytest.mark.asyncio

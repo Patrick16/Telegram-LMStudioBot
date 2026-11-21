@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.ephemeral import reply_ephemeral
-from src.bot.responses import history_content, send_response
+from src.bot.services import inference
 from src.bot.handlers.models import (
     _format_downloaded_list,
     _format_loaded_list,
@@ -21,7 +21,6 @@ from src.bot.handlers.models import (
 )
 from src.lms import cli, sdk
 from src.lms.cli import LmsCliError
-from src.storage.models import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -785,8 +784,6 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _execute_models_unload(text, update, context)
     elif pending == "sessions:new":
         await _execute_sessions_new(text, update, context)
-    elif pending == "inference:send":
-        await _execute_inference_send(text, update, context)
     elif pending.startswith("settings:model:"):
         key = pending[len("settings:model:"):]
         await _execute_model_settings_update(key, text, update, context)
@@ -844,114 +841,8 @@ async def _execute_sessions_new(text: str, update: Update, context) -> None:
     logger.info("Session created via menu: %s", session.name)
 
 
-async def _execute_inference_send(text: str, update: Update, context) -> None:
-    if not text:
-        await reply_ephemeral(update.effective_message, "❌ Message cannot be empty.")
-        return
-
-    from src.lms import sdk
-
-    store = context.bot_data["store"]
-    config = context.bot_data["config"]
-    session = store.get_active_session()
-
-    if session is None:
-        await reply_ephemeral(update.effective_message, "❌ No active chat. Create one first.")
-        context.chat_data["pending_input"] = None
-        return
-
-    context.chat_data["pending_input"] = None
-    user_msg = ChatMessage(role="user", content=text)
-    store.append_message(session.id, user_msg)
-
-    # Load history and trim by policy
-    history = store.load_history(session.id)
-    trimmed = sdk.trim_history(history, session.settings.history_policy)
-
-    sent_message = await update.effective_message.reply_text("⏳ Thinking...")
-    full_response = ""
-
-    try:
-        async for chunk in sdk.chat_stream(
-            session, host=config.LMS_HOST, port=config.LMS_PORT,
-            history_messages=trimmed,
-        ):
-            full_response += chunk
-
-        if full_response:
-            await send_response(sent_message, full_response)
-            stored = history_content(full_response)
-            if stored:
-                store.append_message(
-                    session.id,
-                    ChatMessage(role="assistant", content=stored),
-                )
-        else:
-            await sent_message.edit_text("❌ No response from model.")
-    except Exception as e:
-        logger.error("Inference error (menu): %s", e)
-        await sent_message.edit_text("❌ LM Studio is unreachable.")
-
-
 async def _execute_inference_regenerate(query, context) -> None:
-    from src.lms import sdk
-
-    store = context.bot_data["store"]
-    config = context.bot_data["config"]
-    session = store.get_active_session()
-
-    if not session:
-        await reply_ephemeral(
-            query.message,
-            "❌ Nothing to regenerate (no messages in this chat)."
-        )
-        return
-
-    history = store.load_history(session.id)
-
-    if not history:
-        await reply_ephemeral(
-            query.message,
-            "❌ Nothing to regenerate (no messages in this chat)."
-        )
-        return
-
-    if history[-1].role == "assistant":
-        store.pop_last_assistant(session.id)
-        history = history[:-1]
-
-    if not history or history[-1].role != "user":
-        await reply_ephemeral(
-            query.message,
-            "❌ Nothing to regenerate (no messages in this chat)."
-        )
-        return
-
-    trimmed = sdk.trim_history(history, session.settings.history_policy)
-
-    sent_message = await query.message.reply_text("⏳ Regenerating...")
-    full_response = ""
-
-    try:
-        async for chunk in sdk.chat_stream(
-            session, host=config.LMS_HOST, port=config.LMS_PORT,
-            history_messages=trimmed,
-        ):
-            full_response += chunk
-
-        if full_response:
-            await send_response(sent_message, full_response)
-            stored = history_content(full_response)
-            if stored:
-                store.append_message(
-                    session.id,
-                    ChatMessage(role="assistant", content=stored),
-                )
-        else:
-            await sent_message.edit_text("❌ No response from model.")
-    except Exception as e:
-        logger.error("Regeneration error (menu): %s", e)
-        await sent_message.edit_text("❌ LM Studio is unreachable.")
+    await inference.run_regenerate(query.message, context)
 
 
 async def _execute_settings_update(

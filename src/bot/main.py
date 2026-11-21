@@ -17,7 +17,7 @@ from src.bot.handlers.chats import (
 )
 from src.bot.handlers.help import help_command, start_command
 from src.bot.handlers.menu import menu_callback_handler, menu_command_handler
-from src.bot.handlers.messages import regenerate_command, text_message_handler
+from src.bot.handlers.messages import regenerate_command, stop_command, text_message_handler
 from src.bot.handlers.models import (
     load_command,
     loaded_command,
@@ -61,6 +61,9 @@ def _release_lock() -> None:
 async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("menu", "Open the interactive menu"),
+        BotCommand("stop", "Stop the current reply"),
+        BotCommand("regenerate", "Regenerate the last reply"),
+        BotCommand("newchat", "Start a new chat"),
         BotCommand("help", "Show all commands"),
     ])
 
@@ -103,13 +106,14 @@ def main() -> None:
         app.add_handler(CommandHandler("menu", menu_command_handler))
 
         # Inline menu callback handler
-        app.add_handler(CallbackQueryHandler(menu_callback_handler))
+        # block=False: long actions (model load, regenerate) must not freeze other updates.
+        app.add_handler(CallbackQueryHandler(menu_callback_handler, block=False))
 
         # Model management
         app.add_handler(CommandHandler("models", models_command))
         app.add_handler(CommandHandler("loaded", loaded_command))
-        app.add_handler(CommandHandler("load", load_command))
-        app.add_handler(CommandHandler("unload", unload_command))
+        app.add_handler(CommandHandler("load", load_command, block=False))
+        app.add_handler(CommandHandler("unload", unload_command, block=False))
 
         # Chat sessions
         app.add_handler(CommandHandler("newchat", newchat_command))
@@ -122,9 +126,13 @@ def main() -> None:
         app.add_handler(CommandHandler("set", set_command))
 
         # Inference
-        app.add_handler(CommandHandler("regenerate", regenerate_command))
-        app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
+        # Generation runs in its own task so /stop and the menu stay responsive.
+        app.add_handler(CommandHandler("stop", stop_command))
+        app.add_handler(CommandHandler("regenerate", regenerate_command, block=False))
+        app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler, block=False))
+        app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler, block=False)
+        )
 
         # Error handler
         app.add_error_handler(error_handler)

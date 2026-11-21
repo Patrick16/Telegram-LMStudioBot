@@ -33,6 +33,7 @@ HELP_TEXT = """🤖 *LMStudioBot* — Control LM Studio from Telegram
 Send any text message — Chat with the model
 Send a photo — Analyze image with vision model
 /regenerate — Regenerate last model answer
+/stop — Stop the reply being generated
 
 /menu — Open the inline menu
 /help — Show this help message"""

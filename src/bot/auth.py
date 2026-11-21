@@ -13,8 +13,10 @@ def require_owner(func):
         config = context.bot_data["config"]
         user = update.effective_user
         if user is None or user.id != config.TELEGRAM_OWNER_ID:
-            logger.debug("Unauthorized access attempt dropped")
-            await update.effective_message.reply_text("⛔ Access denied.")
+            # Stay silent: replying would reveal the bot and invite spam.
+            logger.warning(
+                "Ignored update from non-owner user id=%s", user.id if user else None
+            )
             return
         return await func(update, context)
 

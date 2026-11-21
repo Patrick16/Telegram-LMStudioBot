@@ -5,84 +5,44 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
-from src.bot.responses import history_content, send_response
+from src.bot.services import inference
 from src.lms import sdk
-from src.storage.models import ChatMessage
 
 logger = logging.getLogger(__name__)
-
-STREAM_UPDATE_INTERVAL = 50
 
 
 @require_owner
 async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store = context.bot_data["store"]
     config = context.bot_data["config"]
+    message = update.effective_message
     session = store.get_active_session()
 
     if session is None:
-        await update.effective_message.reply_text("❌ No active chat. Use /newchat first.")
+        await message.reply_text("❌ No active chat. Use /newchat first.")
         return
 
-    # Download highest resolution photo
-    photo = update.effective_message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        await file.download_to_drive(tmp.name)
-        image_path = tmp.name
-
-    caption = update.effective_message.caption or ""
-
-    # Check if model supports vision
+    # Check vision support before downloading anything.
     try:
         model_info = await sdk.get_model_info(
-            session.model_identifier,
-            host=config.LMS_HOST,
-            port=config.LMS_PORT,
+            session.model_identifier, host=config.LMS_HOST, port=config.LMS_PORT,
         )
-        # Check for vision capability in model info
-        vision_supported = bool(getattr(model_info, "vision", False))
-    except Exception:
-        await update.effective_message.reply_text("❌ No model loaded. Use /load <model> first.")
+    except Exception as exc:
+        logger.warning("Could not query model info: %s", exc)
+        await message.reply_text(inference.describe_error(exc))
         return
 
-    if not vision_supported:
-        await update.effective_message.reply_text(
-            "❌ The loaded model does not support image input."
-        )
+    if not bool(getattr(model_info, "vision", False)):
+        await message.reply_text("❌ The loaded model does not support image input.")
         return
 
-    user_content = caption or "What do you see in this image?"
-    # Build context from the history *before* this turn: the SDK appends the current
-    # user message (with the image) itself, so including it here would duplicate it.
-    history = store.load_history(session.id)
-    trimmed = sdk.trim_history(history, session.settings.history_policy)
-
-    user_msg = ChatMessage(role="user", content=user_content, image_path=image_path)
-    store.append_message(session.id, user_msg)
-
-    sent_message = await update.effective_message.reply_text("⏳ Processing image...")
-    full_response = ""
-
+    # Download the highest resolution photo; the temp file is removed after the turn.
+    photo = message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        image_path = tmp.name
     try:
-        async for chunk in sdk.infer_with_image(
-            session, image_path, caption=caption,
-            host=config.LMS_HOST, port=config.LMS_PORT,
-            history_messages=trimmed,
-        ):
-            full_response += chunk
-
-        if full_response:
-            await send_response(sent_message, full_response)
-            stored = history_content(full_response)
-            if stored:
-                store.append_message(
-                    session.id,
-                    ChatMessage(role="assistant", content=stored),
-                )
-        else:
-            await sent_message.edit_text("❌ No response from model.")
-    except Exception as e:
-        logger.error("Vision inference error: %s", e)
-        await sent_message.edit_text("❌ LM Studio is unreachable.")
+        await file.download_to_drive(image_path)
+        await inference.run_image_turn(message, context, image_path, message.caption or "")
+    finally:
+        inference.cleanup_temp_file(image_path)
