@@ -61,7 +61,7 @@ Only the owner (`TELEGRAM_OWNER_ID`) can use the bot; messages from anyone else 
 
 ## Development
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scriptsctivate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 pytest -q          # tests
 flake8 src tests   # lint
