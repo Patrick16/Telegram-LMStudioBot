@@ -37,10 +37,11 @@ async def cmd_reply(
     if prev is not None:
         try:
             edited = await prev.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-            context.chat_data[_CMD_MSG_KEY] = edited
-            if ephemeral:
-                schedule_delete(edited)
-            return edited
+            if isinstance(edited, Message):  # edit_text returns True for inline messages
+                context.chat_data[_CMD_MSG_KEY] = edited
+                if ephemeral:
+                    schedule_delete(edited)
+                return edited
         except BadRequest:
             pass  # stale / deleted / unchanged — fall through to fresh message
 

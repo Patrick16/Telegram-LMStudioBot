@@ -156,3 +156,28 @@ async def test_vision_does_not_duplicate_current_user_message(tmp_path):
     saved = store.load_history(session.id)
     assert [m.role for m in saved] == ["user", "assistant", "user", "assistant"]
     assert saved[-1].content == "It is a cat"
+
+
+# --- Property-style: any model output yields valid, in-limit Telegram HTML ---------
+
+_FRAGMENTS = [
+    "word ", "longer sentence here. ", "\n", "\n\n", "**", "*", "`", "```\n", "```python\n",
+    "<", ">", "&", "&amp;", "<think>", "</think>", "[link](https://x.io/a)", "# Title\n",
+    "~~", "x" * 300, "é ", "* item\n", "2 * 3 ",
+]
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_random_model_output_always_yields_valid_chunks(seed):
+    import random
+
+    rng = random.Random(seed)
+    raw = "".join(rng.choice(_FRAGMENTS) for _ in range(rng.randint(1, 1500)))
+
+    chunks = split_message(format_response(raw))
+
+    assert chunks
+    for chunk in chunks:
+        assert 0 < len(chunk) <= 4096
+        assert html_to_plain(chunk).strip(), "chunk has no visible text"
+        _assert_valid_html(chunk)

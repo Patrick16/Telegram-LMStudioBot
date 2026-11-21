@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -8,7 +9,7 @@ from src.bot.ephemeral import reply_ephemeral
 
 logger = logging.getLogger(__name__)
 
-VALID_SETTINGS = {
+VALID_SETTINGS: dict[str, dict[str, Any]] = {
     "temperature": {"type": float, "min": 0.0, "max": 2.0},
     "max_tokens": {"type": int, "min": -1, "max": None},
     "top_p": {"type": float, "min": 0.0, "max": 1.0},

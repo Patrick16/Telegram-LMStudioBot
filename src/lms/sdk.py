@@ -234,7 +234,7 @@ def _respond_with_retry(
                 image_handle = lmstudio.prepare_image(image_path)
                 user_content = caption or "What do you see in this image?"
                 chat.add_user_message(user_content, images=[image_handle])
-            config = _build_config(session)
+            config: Any = _build_config(session)
             for fragment in model.respond_stream(chat, config=config):
                 tokens_yielded += 1
                 yield fragment.content

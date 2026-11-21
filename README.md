@@ -44,14 +44,36 @@ TELEGRAM_OWNER_ID=your_telegram_id
 LMS_HOST=localhost
 LMS_PORT=1234
 SESSIONS_FILE=data/sessions.json
+HISTORIES_DIR=data/histories
+MODEL_PRESETS_FILE=data/model-presets.json
+SESSION_PRESETS_FILE=data/session-presets.json
 LOG_LEVEL=INFO
 ```
+
+Only the owner (`TELEGRAM_OWNER_ID`) can use the bot; messages from anyone else are ignored silently.
 
 ## Useful Commands
 - `/start`, `/help`, `/menu` — Info & settings
 - `/models`, `/loaded`, `/load`, `/unload` — Model management
 - `/newchat`, `/chats`, `/switchchat`, `/removechat` — Session management
+- `/regenerate`, `/stop` — Regenerate the last reply / stop the reply being generated
 - Just send a message or image to chat!
+
+## Development
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scriptsctivate
+pip install -r requirements-dev.txt
+pytest -q          # tests
+flake8 src tests   # lint
+mypy src           # type check
+pre-commit install # optional: run the checks on every commit
+```
+
+Layout:
+- `src/bot/handlers/` — Telegram handlers (`menu/` is the inline menu package)
+- `src/bot/services/` — `inference.py` (one code path for text/image/regenerate turns), `generation.py` (per-chat stop)
+- `src/lms/` — LM Studio SDK streaming (`sdk.py`) and `lms` CLI wrapper (`cli.py`)
+- `src/storage/` — sessions, histories and presets (atomic JSON writes; corrupt files are quarantined as `*.corrupt-<timestamp>`)
 
 ## More Info
 - See [LAUNCH_GUIDE.md](LAUNCH_GUIDE.md) for full setup & troubleshooting
