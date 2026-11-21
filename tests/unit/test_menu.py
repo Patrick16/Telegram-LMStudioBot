@@ -118,10 +118,10 @@ def make_loaded_handle(identifier: str, size_bytes: int, model_key: str | None =
 # ---------------------------------------------------------------------------
 
 class TestBuildMainMenu:
-    def test_has_five_buttons(self):
+    def test_has_six_buttons(self):
         kb = build_main_menu()
         buttons = [btn for row in kb.inline_keyboard for btn in row]
-        assert len(buttons) == 5
+        assert len(buttons) == 6
 
     def test_button_labels(self):
         kb = build_main_menu()

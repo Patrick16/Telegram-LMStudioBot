@@ -38,6 +38,7 @@ from src.bot.handlers.models import (
 )
 from src.bot.services import inference
 from src.bot.services.generation import get_generations
+from src.bot.services.status import build_status_text
 from src.lms import sdk
 from src.lms.cli import LmsCliError
 
@@ -151,6 +152,10 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await reply_ephemeral(query.message, "Nothing is being generated right now.")
         return
 
+    if data == inference.CB_RETRY:
+        await inference.run_retry(query.message, context)
+        return
+
     if data == inference.CB_REGENERATE:
         await _execute_inference_regenerate(query, context)
         return
@@ -158,6 +163,17 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     # Top-level regenerate
     if data == "menu:regenerate":
         await _execute_inference_regenerate(query, context)
+        return
+
+    if data == "menu:status":
+        text = await build_status_text(context)
+        try:
+            await query.edit_message_text(
+                text=text, reply_markup=build_back_button("menu:main"), parse_mode="HTML"
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                logger.error("Failed to show status: %s", e)
         return
 
     # Help topics

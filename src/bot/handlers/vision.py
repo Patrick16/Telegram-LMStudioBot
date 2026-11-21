@@ -16,11 +16,7 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     store = context.bot_data["store"]
     config = context.bot_data["config"]
     message = update.effective_message
-    session = store.get_active_session()
-
-    if session is None:
-        await message.reply_text("❌ No active chat. Use /newchat first.")
-        return
+    session = inference.ensure_session(store)
 
     # Check vision support before downloading anything.
     try:

@@ -435,10 +435,15 @@ class MockStream:
 
 
 @pytest.mark.asyncio
-async def test_text_handler_no_chat(update, context):
+@patch("src.lms.sdk.chat_stream")
+async def test_text_handler_creates_first_chat(mock_stream, update, context, store):
+    mock_stream.return_value = MockStream(["Hi there"])
+    update.effective_message.text = "Hello"
+    assert store.get_active_session() is None
     await text_message_handler(update, context)
-    reply = update.effective_message.reply_text.call_args[0][0]
-    assert "No active chat" in reply
+    session = store.get_active_session()
+    assert session is not None and session.name == "Chat 1"
+    assert [m.content for m in store.load_history(session.id)] == ["Hello", "Hi there"]
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,8 @@ from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.handlers.menu import menu_command_handler
+from src.bot.services.inference import ensure_session
+from src.bot.services.status import build_status_text
 
 MENU_REPLY_KEYBOARD = ReplyKeyboardMarkup(
     [[KeyboardButton("/menu")]],
@@ -36,15 +38,20 @@ Send a photo — Analyze image with vision model
 /regenerate — Regenerate last model answer
 /stop — Stop the reply being generated
 
+/status — LM Studio and chat status
 /menu — Open the inline menu
 /help — Show this help message"""
 
 
 @require_owner
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ensure_session(context.bot_data["store"])
+    status = await build_status_text(context)
     await update.effective_message.reply_text(
-        "📌 Tap the button below anytime to open the menu.",
+        "👋 <b>Welcome to LMStudioBot</b>\n"
+        "Just send a message to chat, or use the menu below.\n\n" + status,
         reply_markup=MENU_REPLY_KEYBOARD,
+        parse_mode="HTML",
     )
     await menu_command_handler.__wrapped__(update, context)
 

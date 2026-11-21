@@ -84,7 +84,10 @@ def build_main_menu() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
             InlineKeyboardButton("🔄 Regenerate", callback_data="menu:regenerate"),
         ],
-        [InlineKeyboardButton("❓ Help", callback_data="menu:help")],
+        [
+            InlineKeyboardButton("📊 Status", callback_data="menu:status"),
+            InlineKeyboardButton("❓ Help", callback_data="menu:help"),
+        ],
     ])
 
 

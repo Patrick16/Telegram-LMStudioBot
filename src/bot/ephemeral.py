@@ -14,6 +14,7 @@ from telegram.error import BadRequest
 logger = logging.getLogger(__name__)
 
 DEFAULT_DELAY = 5  # seconds
+ERROR_DELAY = 15  # error messages stay longer so they can be read
 
 
 async def _delete_after(message: Message, delay: float) -> None:
@@ -41,5 +42,7 @@ async def reply_ephemeral(
 ) -> Message:
     """Reply to *source_message* and schedule the reply for auto-deletion."""
     msg = await source_message.reply_text(text, **kwargs)
+    if text.startswith("❌"):
+        delay = max(delay, ERROR_DELAY)
     schedule_delete(msg, delay)
     return msg

@@ -32,6 +32,7 @@ MSG_NO_RESPONSE = "❌ No response from model."
 MSG_STOPPED = "⏹ Stopped."
 CB_STOP = "gen:stop"
 CB_REGENERATE = "gen:regen"
+CB_RETRY = "gen:retry"
 
 STREAM_EDIT_INTERVAL = 1.5  # seconds between live edits (Telegram rate limits apply)
 TYPING_INTERVAL = 4.0       # a chat action lasts ~5s
@@ -47,6 +48,16 @@ def reply_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("🔄 Regenerate", callback_data=CB_REGENERATE)]]
     )
+
+
+def error_keyboard(exc: BaseException | None, retry_callback: str | None):
+    """Action buttons for a failed turn: load a model and/or retry."""
+    rows = []
+    if isinstance(exc, lmstudio.LMStudioModelNotFoundError):
+        rows.append([InlineKeyboardButton("📦 Load a model", callback_data="models:load")])
+    if retry_callback:
+        rows.append([InlineKeyboardButton("🔁 Retry", callback_data=retry_callback)])
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 MSG_INTERRUPTED = (
@@ -68,9 +79,9 @@ def describe_error(exc: BaseException) -> str:
     return f"❌ Generation failed: {exc or type(exc).__name__}"
 
 
-async def _safe_edit(message, text: str) -> None:
+async def _safe_edit(message, text: str, reply_markup=None) -> None:
     try:
-        await message.edit_text(text)
+        await message.edit_text(text, reply_markup=reply_markup)
     except TelegramError as exc:
         logger.warning("Could not edit status message: %s", exc)
 
@@ -93,6 +104,8 @@ async def _generate(
     *,
     status: str,
     persist,
+    retry_callback: str | None = None,
+    retry_text: str | None = None,
 ) -> None:
     """Stream *stream* live, deliver the final reply and call ``persist(text)`` on success."""
     generations = get_generations(context)
@@ -139,14 +152,18 @@ async def _generate(
             return
         except Exception as exc:
             logger.error("Inference error: %s", exc)
-            await _safe_edit(placeholder, describe_error(exc))
+            if retry_text is not None:
+                context.chat_data["retry_text"] = retry_text
+            await _safe_edit(
+                placeholder, describe_error(exc), error_keyboard(exc, retry_callback)
+            )
             return
         finally:
             typing.cancel()
 
         stored = history_content(text)
         if not stored:
-            await _safe_edit(placeholder, MSG_NO_RESPONSE)
+            await _safe_edit(placeholder, MSG_NO_RESPONSE, error_keyboard(None, retry_callback))
             return
 
         try:
@@ -178,6 +195,14 @@ async def _context_budget(session, context) -> int | None:
     return sdk.compute_context_budget(length, settings.max_tokens, settings.system_prompt)
 
 
+def ensure_session(store):
+    """Return the active chat, creating "Chat N" on first use so users can just type."""
+    session = store.get_active_session()
+    if session is None:
+        session = store.create_session(f"Chat {len(store.list_sessions()) + 1}")
+    return session
+
+
 def _stream_args(context):
     config = context.bot_data["config"]
     return {"host": config.LMS_HOST, "port": config.LMS_PORT}
@@ -185,10 +210,7 @@ def _stream_args(context):
 
 async def run_text_turn(message, context, user_text: str) -> None:
     store = context.bot_data["store"]
-    session = store.get_active_session()
-    if session is None:
-        await message.reply_text(MSG_NO_CHAT)
-        return
+    session = ensure_session(store)
 
     user_msg = ChatMessage(role="user", content=user_text)
     # The prompt includes the new user message, but it is only persisted with the reply.
@@ -204,15 +226,15 @@ async def run_text_turn(message, context, user_text: str) -> None:
             session.id, [user_msg, ChatMessage(role="assistant", content=reply)]
         )
 
-    await _generate(message, context, session, stream, status="⏳ Thinking...", persist=persist)
+    await _generate(
+        message, context, session, stream, status="⏳ Thinking...", persist=persist,
+        retry_callback=CB_RETRY, retry_text=user_text,
+    )
 
 
 async def run_image_turn(message, context, image_path: str, caption: str) -> None:
     store = context.bot_data["store"]
-    session = store.get_active_session()
-    if session is None:
-        await message.reply_text(MSG_NO_CHAT)
-        return
+    session = ensure_session(store)
 
     user_content = caption or "What do you see in this image?"
     # The temp file is deleted after the turn, so history keeps only a text marker.
@@ -238,6 +260,15 @@ async def run_image_turn(message, context, image_path: str, caption: str) -> Non
     )
 
 
+async def run_retry(message, context) -> None:
+    """Re-send the text of the last failed turn."""
+    text = context.chat_data.pop("retry_text", None)
+    if not text:
+        await message.reply_text("Nothing to retry.")
+        return
+    await run_text_turn(message, context, text)
+
+
 async def run_regenerate(message, context) -> None:
     store = context.bot_data["store"]
     session = store.get_active_session()
@@ -261,7 +292,8 @@ async def run_regenerate(message, context) -> None:
         store.replace_last_assistant(session.id, ChatMessage(role="assistant", content=reply))
 
     await _generate(
-        message, context, session, stream, status="⏳ Regenerating...", persist=persist
+        message, context, session, stream, status="⏳ Regenerating...", persist=persist,
+        retry_callback=CB_REGENERATE,
     )
 
 

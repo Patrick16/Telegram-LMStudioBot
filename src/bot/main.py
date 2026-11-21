@@ -25,6 +25,7 @@ from src.bot.handlers.models import (
     unload_command,
 )
 from src.bot.handlers.settings import set_command, setprompt_command
+from src.bot.handlers.status import status_command
 from src.bot.handlers.vision import photo_message_handler
 from src.storage.session_store import SessionStoreManager
 
@@ -61,6 +62,7 @@ def _release_lock() -> None:
 async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("menu", "Open the interactive menu"),
+        BotCommand("status", "LM Studio and chat status"),
         BotCommand("stop", "Stop the current reply"),
         BotCommand("regenerate", "Regenerate the last reply"),
         BotCommand("newchat", "Start a new chat"),
@@ -104,6 +106,7 @@ def main() -> None:
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("menu", menu_command_handler))
+        app.add_handler(CommandHandler("status", status_command))
 
         # Inline menu callback handler
         # block=False: long actions (model load, regenerate) must not freeze other updates.
