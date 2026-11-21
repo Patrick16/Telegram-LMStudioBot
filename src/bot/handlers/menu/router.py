@@ -11,6 +11,7 @@ from src.bot.ephemeral import reply_ephemeral
 from src.bot.handlers.menu.keyboards import (
     build_back_button,
     build_help_menu,
+    build_delete_confirmation_keyboard,
     build_help_models,
     build_help_sessions,
     build_help_settings,
@@ -23,7 +24,10 @@ from src.bot.handlers.menu.keyboards import (
     build_sessions_menu,
     build_settings_menu,
     render_current_settings,
+    render_delete_confirmation,
+    render_main_menu_text,
 )
+from src.bot.handlers.menu.pending import CB_INPUT_CANCEL, request_input
 from src.bot.handlers.models import (
     _format_downloaded_list,
     _format_loaded_list,
@@ -53,8 +57,10 @@ SECTION_BUILDERS = {
 
 async def _show_section(query, context: ContextTypes.DEFAULT_TYPE, section: str) -> None:
     """Edit the menu message to show *section*, with stale-message recovery."""
+    parse_mode = None
     if section == "menu:main":
-        text, keyboard = "🏠 Main Menu", build_main_menu()
+        text = render_main_menu_text(context.bot_data["store"])
+        keyboard, parse_mode = build_main_menu(), "HTML"
     elif section in SECTION_BUILDERS:
         text, builder = SECTION_BUILDERS[section]
         keyboard = builder()
@@ -63,7 +69,7 @@ async def _show_section(query, context: ContextTypes.DEFAULT_TYPE, section: str)
         return
 
     try:
-        await query.edit_message_text(text=text, reply_markup=keyboard)
+        await query.edit_message_text(text=text, reply_markup=keyboard, parse_mode=parse_mode)
     except BadRequest as e:
         if "message is not modified" in str(e).lower():
             return
@@ -71,7 +77,9 @@ async def _show_section(query, context: ContextTypes.DEFAULT_TYPE, section: str)
         await query.answer("Menu expired — opening a fresh menu.")
         context.chat_data["menu_message_id"] = None
         msg = await query.message.chat.send_message(
-            text="🏠 Main Menu", reply_markup=build_main_menu()
+            text=render_main_menu_text(context.bot_data["store"]),
+            reply_markup=build_main_menu(),
+            parse_mode="HTML",
         )
         context.chat_data["menu_message_id"] = msg.message_id
 
@@ -92,15 +100,18 @@ async def menu_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=menu_msg_id,
-                text="🏠 Main Menu",
+                text=render_main_menu_text(context.bot_data["store"]),
                 reply_markup=build_main_menu(),
+                parse_mode="HTML",
             )
             return
         except BadRequest:
             logger.info("Previous menu message stale, sending new one")
 
     msg = await update.effective_message.reply_text(
-        "🏠 Main Menu", reply_markup=build_main_menu()
+        render_main_menu_text(context.bot_data["store"]),
+        reply_markup=build_main_menu(),
+        parse_mode="HTML",
     )
     context.chat_data["menu_message_id"] = msg.message_id
 
@@ -124,6 +135,14 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if data in ("menu:main", "menu:models", "menu:sessions",
                 "menu:settings", "menu:help"):
         await _show_section(query, context, data)
+        return
+
+    if data == CB_INPUT_CANCEL:
+        context.chat_data["pending_input"] = None
+        try:
+            await query.edit_message_text("❌ Cancelled.")
+        except BadRequest:
+            pass
         return
 
     # Buttons under a reply / the "thinking" placeholder
@@ -266,11 +285,10 @@ async def _handle_sessions_action(query, context, data: str) -> None:
     store = context.bot_data["store"]
 
     if data == "sessions:new":
-        context.chat_data["pending_input"] = "sessions:new"
-        await query.message.reply_text(
-            "Enter a name for the new chat (or send empty for auto-name):"
+        await request_input(
+            query.message, context, "sessions:new",
+            "Enter a name for the new chat (or send empty for auto-name):",
         )
-        logger.info("Pending input set: sessions:new")
         return
 
     if data == "sessions:list":
@@ -302,7 +320,7 @@ async def _handle_sessions_action(query, context, data: str) -> None:
             except BadRequest:
                 pass
             return
-        keyboard = build_sessions_list_keyboard(sessions, "confirm_remove")
+        keyboard = build_sessions_list_keyboard(sessions, "remove_ask")
         try:
             await query.edit_message_text(
                 text="🗑 Select a chat to remove:", reply_markup=keyboard
@@ -322,6 +340,23 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         try:
             await query.edit_message_text(
                 text="🧠 Chat Sessions", reply_markup=build_sessions_menu()
+            )
+        except BadRequest:
+            pass
+        return
+
+    if data.startswith("sessions:remove_ask:"):
+        session_id = data[len("sessions:remove_ask:"):]
+        session = store.store.sessions.get(session_id)
+        if session is None:
+            await reply_ephemeral(query.message, "❌ Chat not found.")
+            return
+        count = len(store.load_history(session_id))
+        try:
+            await query.edit_message_text(
+                text=render_delete_confirmation(session, count),
+                reply_markup=build_delete_confirmation_keyboard(session_id),
+                parse_mode="HTML",
             )
         except BadRequest:
             pass
@@ -411,8 +446,10 @@ async def _handle_settings_action(query, context, data: str) -> None:
     if data.startswith("settings:history_policy:"):
         mode = data[len("settings:history_policy:"):]
         if mode == "last_n_pairs":
-            context.chat_data["pending_input"] = "settings:history_policy:last_n_pairs"
-            await query.message.reply_text("Enter the number of message pairs to keep:")
+            await request_input(
+                query.message, context, "settings:history_policy:last_n_pairs",
+                "Enter the number of message pairs to keep:",
+            )
             return
         from src.storage.models import HistoryReusePolicy
         session.settings.history_policy = HistoryReusePolicy(mode=mode)
@@ -511,9 +548,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
         "settings:model:identifier": "Enter model identifier:",
     }
     if data in model_setting_prompts:
-        context.chat_data["pending_input"] = data
-        await query.message.reply_text(model_setting_prompts[data])
-        logger.info("Pending input set: %s", data)
+        await request_input(query.message, context, data, model_setting_prompts[data])
         return
 
     # --- Session-scoped setting prompts ---
@@ -530,9 +565,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
         "settings:session:seed": "Enter seed (integer ≥ 0, or 'none' for random):",
     }
     if data in session_setting_prompts:
-        context.chat_data["pending_input"] = data
-        await query.message.reply_text(session_setting_prompts[data])
-        logger.info("Pending input set: %s", data)
+        await request_input(query.message, context, data, session_setting_prompts[data])
         return
 
     # Legacy compat — old settings: keys
@@ -543,9 +576,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
         "settings:top_p": "Enter top-p (0.0–1.0):",
     }
     if data in legacy_prompts:
-        context.chat_data["pending_input"] = data
-        await query.message.reply_text(legacy_prompts[data])
-        logger.info("Pending input set: %s", data)
+        await request_input(query.message, context, data, legacy_prompts[data])
         return
 
 

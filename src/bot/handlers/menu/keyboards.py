@@ -40,6 +40,39 @@ HELP_SETTINGS = (
 # ---------------------------------------------------------------------------
 
 
+def render_main_menu_text(store) -> str:
+    """Header of the main menu: active chat and bound model at a glance (Telegram HTML)."""
+    lines = ["🏠 <b>Main Menu</b>"]
+    session = store.get_active_session()
+    if session is None:
+        lines.append("💬 No chat yet — open <b>Chat Sessions</b> → ➕ New Chat")
+    else:
+        count = len(store.load_history(session.id))
+        name = html.escape(session.name, quote=False)
+        lines.append(f"💬 Chat: <b>{name}</b> · {count} message(s)")
+        if session.model_identifier:
+            model = html.escape(session.model_identifier, quote=False)
+            lines.append(f"🧠 Model: <code>{model}</code>")
+        else:
+            lines.append("🧠 Model: <i>not loaded</i>")
+    return "\n".join(lines)
+
+
+def render_delete_confirmation(session, message_count: int) -> str:
+    name = html.escape(session.name, quote=False)
+    return (
+        f"🗑 Delete chat <b>{name}</b> and its {message_count} message(s)?\n"
+        "This cannot be undone."
+    )
+
+
+def build_delete_confirmation_keyboard(session_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑 Delete", callback_data=f"sessions:confirm_remove:{session_id}")],
+        [InlineKeyboardButton("⬅ Cancel", callback_data="sessions:remove")],
+    ])
+
+
 def build_main_menu() -> InlineKeyboardMarkup:
     """Build the top-level menu keyboard (no Inference section, Regenerate at top)."""
     return InlineKeyboardMarkup([

@@ -348,7 +348,8 @@ class TestShowSection:
         await _show_section(query, context, "menu:main")
         query.edit_message_text.assert_called_once()
         call_kwargs = query.edit_message_text.call_args[1]
-        assert call_kwargs["text"] == "🏠 Main Menu"
+        assert "Main Menu" in call_kwargs["text"]
+        assert call_kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
     async def test_show_models(self, query, context):

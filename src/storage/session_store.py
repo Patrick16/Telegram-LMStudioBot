@@ -133,20 +133,19 @@ class SessionStoreManager:
         return True
 
     def resolve_session_id(self, id_or_number: str) -> str | None:
+        """Resolve an exact id, a 1-based list number, or a unique id prefix (3+ chars)."""
         if id_or_number in self._store.sessions:
             return id_or_number
-        try:
-            idx = int(id_or_number) - 1
-            sessions_list = list(self._store.sessions.keys())
-            if 0 <= idx < len(sessions_list):
-                return sessions_list[idx]
-            return None
-        except ValueError:
-            pass
+        if id_or_number.isdigit():
+            index = int(id_or_number) - 1
+            ids = list(self._store.sessions.keys())
+            if 0 <= index < len(ids):
+                return ids[index]
+        # A number outside the list may still be the start of an id (ids are UUIDs).
         if len(id_or_number) > 2:
-            for sid in self._store.sessions:
-                if sid.startswith(id_or_number):
-                    return sid
+            matches = [sid for sid in self._store.sessions if sid.startswith(id_or_number)]
+            if len(matches) == 1:
+                return matches[0]
         return None
 
     def update_session(self, session: ChatSession) -> None:

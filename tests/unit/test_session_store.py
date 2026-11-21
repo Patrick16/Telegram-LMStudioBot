@@ -303,3 +303,21 @@ def test_save_is_atomic_and_leaves_no_temp_files(manager, store_path, monkeypatc
 
     assert open(store_path, encoding="utf-8").read() == before
     assert not [n for n in os.listdir(os.path.dirname(store_path)) if n.startswith(".tmp-")]
+
+
+def test_resolve_prefix_that_looks_like_a_number(manager):
+    # ids are UUIDs: an all-digit prefix must still resolve (used to be a flaky miss)
+    manager.create_session("A")
+    manager.store.sessions["12345678-aaaa-bbbb-cccc-000000000000"] = manager.create_session("B")
+    sid = "12345678-aaaa-bbbb-cccc-000000000000"
+    assert manager.resolve_session_id("12345678") == sid
+
+
+def test_resolve_ambiguous_prefix_is_none(manager):
+    a = manager.create_session("A")
+    b = manager.create_session("B")
+    manager.store.sessions.pop(a.id)
+    manager.store.sessions.pop(b.id)
+    a.id, b.id = "abc-1", "abc-2"
+    manager.store.sessions.update({a.id: a, b.id: b})
+    assert manager.resolve_session_id("abc") is None

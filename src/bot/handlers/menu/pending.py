@@ -2,8 +2,9 @@
 
 import logging
 import re
+import time
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from src.bot.ephemeral import reply_ephemeral
@@ -12,6 +13,33 @@ from src.bot.handlers.settings_spec import SETTING_SPECS
 from src.lms.cli import LmsCliError
 
 logger = logging.getLogger(__name__)
+
+INPUT_TIMEOUT = 120.0  # seconds a value prompt stays active
+CB_INPUT_CANCEL = "input:cancel"
+
+
+def input_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=CB_INPUT_CANCEL)]])
+
+
+async def request_input(message, context, key: str, prompt: str) -> None:
+    """Ask the user for a value: remember what we wait for and offer a Cancel button."""
+    context.chat_data["pending_input"] = key
+    context.chat_data["pending_input_at"] = time.monotonic()
+    await message.reply_text(prompt, reply_markup=input_cancel_keyboard())
+    logger.info("Pending input set: %s", key)
+
+
+def expire_pending_if_stale(context) -> bool:
+    """Drop a value prompt nobody answered. Returns True if one was expired."""
+    if not context.chat_data.get("pending_input"):
+        return False
+    requested_at = context.chat_data.get("pending_input_at")
+    if requested_at is None or time.monotonic() - requested_at <= INPUT_TIMEOUT:
+        return False
+    context.chat_data["pending_input"] = None
+    context.chat_data["pending_input_at"] = None
+    return True
 
 
 async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
