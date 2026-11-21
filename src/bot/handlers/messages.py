@@ -3,34 +3,15 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from telegram.error import BadRequest
-
 from src.bot.auth import require_owner
-from src.bot.formatting import format_response, split_message
 from src.bot.handlers.menu import handle_pending_input
+from src.bot.responses import history_content, send_response
 from src.lms import sdk
 from src.storage.models import ChatMessage
 
 logger = logging.getLogger(__name__)
 
 STREAM_UPDATE_INTERVAL = 50
-
-
-async def _send_response(placeholder_message, raw_text: str) -> None:
-    """Edit the placeholder with the first chunk; send overflow as follow-up messages."""
-    formatted = format_response(raw_text)
-    chunks = split_message(formatted)
-    try:
-        await placeholder_message.edit_text(chunks[0], parse_mode="HTML")
-    except BadRequest as err:
-        logger.warning("HTML send failed (%s), retrying as plain text", err)
-        await placeholder_message.edit_text(chunks[0])
-    for chunk in chunks[1:]:
-        try:
-            await placeholder_message.reply_text(chunk, parse_mode="HTML")
-        except BadRequest as err:
-            logger.warning("HTML send failed for overflow chunk (%s), sending plain", err)
-            await placeholder_message.reply_text(chunk)
 
 
 @require_owner
@@ -67,11 +48,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             full_response += chunk
 
         if full_response:
-            await _send_response(sent_message, full_response)
-            store.append_message(
-                session.id,
-                ChatMessage(role="assistant", content=full_response),
-            )
+            await send_response(sent_message, full_response)
+            stored = history_content(full_response)
+            if stored:
+                store.append_message(
+                    session.id,
+                    ChatMessage(role="assistant", content=stored),
+                )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:
@@ -121,11 +104,13 @@ async def regenerate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             full_response += chunk
 
         if full_response:
-            await _send_response(sent_message, full_response)
-            store.append_message(
-                session.id,
-                ChatMessage(role="assistant", content=full_response),
-            )
+            await send_response(sent_message, full_response)
+            stored = history_content(full_response)
+            if stored:
+                store.append_message(
+                    session.id,
+                    ChatMessage(role="assistant", content=stored),
+                )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:

@@ -260,3 +260,46 @@ def test_load_session_presets(tmp_path):
     assert len(result.presets) == 1
     assert result.presets[0].name == "Creative"
     assert result.presets[0].settings.temperature == 1.2
+
+
+# ---------------------------------------------------------------------------
+# Data-safety regressions (B2, B3)
+# ---------------------------------------------------------------------------
+
+def test_corrupt_history_is_quarantined_not_overwritten(manager, histories_dir):
+    session = manager.create_session("Chat")
+    path = os.path.join(histories_dir, f"{session.id}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('{"session_id": "x", "messages": [')  # truncated JSON
+
+    manager.append_message(session.id, ChatMessage(role="user", content="new"))
+
+    leftovers = [n for n in os.listdir(histories_dir) if ".corrupt-" in n]
+    assert len(leftovers) == 1
+    with open(os.path.join(histories_dir, leftovers[0]), encoding="utf-8") as f:
+        assert f.read().startswith('{"session_id": "x"')
+    assert [m.content for m in manager.load_history(session.id)] == ["new"]
+
+
+def test_corrupt_sessions_file_does_not_crash_load(store_path, histories_dir):
+    with open(store_path, "w", encoding="utf-8") as f:
+        f.write("{not json")
+    mgr = SessionStoreManager(store_path, histories_dir=histories_dir)
+    mgr.load()  # must not raise
+    assert mgr.list_sessions() == []
+    assert any(".corrupt-" in n for n in os.listdir(os.path.dirname(store_path)))
+
+
+def test_save_is_atomic_and_leaves_no_temp_files(manager, store_path, monkeypatch):
+    manager.create_session("Keep me")
+    before = open(store_path, encoding="utf-8").read()
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("src.storage.session_store.os.replace", boom)
+    with pytest.raises(OSError):
+        manager.create_session("Lost")
+
+    assert open(store_path, encoding="utf-8").read() == before
+    assert not [n for n in os.listdir(os.path.dirname(store_path)) if n.startswith(".tmp-")]

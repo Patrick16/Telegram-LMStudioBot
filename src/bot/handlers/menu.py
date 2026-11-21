@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.ephemeral import reply_ephemeral
-from src.bot.formatting import format_response, split_message
+from src.bot.responses import history_content, send_response
 from src.bot.handlers.models import (
     _format_downloaded_list,
     _format_loaded_list,
@@ -879,23 +879,13 @@ async def _execute_inference_send(text: str, update: Update, context) -> None:
             full_response += chunk
 
         if full_response:
-            formatted = format_response(full_response)
-            chunks = split_message(formatted)
-            try:
-                await sent_message.edit_text(chunks[0], parse_mode="HTML")
-            except BadRequest as fmt_err:
-                logger.warning("HTML send failed (%s), retrying as plain text", fmt_err)
-                await sent_message.edit_text(chunks[0])
-            for chunk in chunks[1:]:
-                try:
-                    await sent_message.reply_text(chunk, parse_mode="HTML")
-                except BadRequest as fmt_err:
-                    logger.warning("HTML overflow chunk failed (%s), sending plain", fmt_err)
-                    await sent_message.reply_text(chunk)
-            store.append_message(
-                session.id,
-                ChatMessage(role="assistant", content=full_response),
-            )
+            await send_response(sent_message, full_response)
+            stored = history_content(full_response)
+            if stored:
+                store.append_message(
+                    session.id,
+                    ChatMessage(role="assistant", content=stored),
+                )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:
@@ -950,23 +940,13 @@ async def _execute_inference_regenerate(query, context) -> None:
             full_response += chunk
 
         if full_response:
-            formatted = format_response(full_response)
-            chunks = split_message(formatted)
-            try:
-                await sent_message.edit_text(chunks[0], parse_mode="HTML")
-            except BadRequest as fmt_err:
-                logger.warning("HTML send failed (%s), retrying as plain text", fmt_err)
-                await sent_message.edit_text(chunks[0])
-            for chunk in chunks[1:]:
-                try:
-                    await sent_message.reply_text(chunk, parse_mode="HTML")
-                except BadRequest as fmt_err:
-                    logger.warning("HTML overflow chunk failed (%s), sending plain", fmt_err)
-                    await sent_message.reply_text(chunk)
-            store.append_message(
-                session.id,
-                ChatMessage(role="assistant", content=full_response),
-            )
+            await send_response(sent_message, full_response)
+            stored = history_content(full_response)
+            if stored:
+                store.append_message(
+                    session.id,
+                    ChatMessage(role="assistant", content=stored),
+                )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:

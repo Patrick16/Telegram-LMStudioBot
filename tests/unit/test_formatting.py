@@ -21,7 +21,7 @@ class TestStripThinkTags:
 
 class TestFormatResponse:
     def test_empty_after_strip(self):
-        assert format_response("<think>only reasoning</think>") == "*(no response)*"
+        assert format_response("<think>only reasoning</think>") == "<i>(no response)</i>"
 
     def test_plain_prose_markdown_converted(self):
         text = "Hello world. **bold** [link](url)"

@@ -4,6 +4,7 @@ import sys
 import tempfile
 
 from dotenv import load_dotenv
+from filelock import FileLock, Timeout
 from telegram import BotCommand
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
@@ -30,33 +31,29 @@ from src.storage.session_store import SessionStoreManager
 logger = logging.getLogger(__name__)
 
 _LOCK_FILE = os.path.join(tempfile.gettempdir(), "lmstudiobot.lock")
+_instance_lock = FileLock(_LOCK_FILE)
 
 
 def _acquire_lock() -> None:
-    """Exit immediately if another instance is already running."""
-    if os.path.exists(_LOCK_FILE):
-        try:
-            with open(_LOCK_FILE) as f:
-                pid = int(f.read().strip())
-            # Check if the PID is still alive
-            os.kill(pid, 0)
-            print(
-                f"ERROR: Bot is already running (PID {pid}). "
-                "Stop it before starting a new instance.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        except (OSError, ValueError):
-            # Stale lock — previous process died without cleanup
-            pass
+    """Exit immediately if another instance is already running.
 
-    with open(_LOCK_FILE, "w") as f:
-        f.write(str(os.getpid()))
+    Uses an OS-level file lock, which is released automatically if the process
+    dies, so there are no stale locks and no PID probing (``os.kill(pid, 0)``
+    would terminate the process on Windows).
+    """
+    try:
+        _instance_lock.acquire(timeout=0)
+    except Timeout:
+        print(
+            "ERROR: Bot is already running. Stop it before starting a new instance.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _release_lock() -> None:
     try:
-        os.remove(_LOCK_FILE)
+        _instance_lock.release()
     except OSError:
         pass
 
@@ -83,7 +80,12 @@ def main() -> None:
             level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
         )
 
-        store = SessionStoreManager(config.SESSIONS_FILE)
+        store = SessionStoreManager(
+            config.SESSIONS_FILE,
+            histories_dir=config.HISTORIES_DIR,
+            model_presets_file=config.MODEL_PRESETS_FILE,
+            session_presets_file=config.SESSION_PRESETS_FILE,
+        )
         store.load()
 
         # Ensure preset/history directories exist

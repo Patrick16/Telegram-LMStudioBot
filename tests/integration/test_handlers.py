@@ -459,7 +459,7 @@ async def test_text_handler_success(mock_stream, update, context, store):
     assert len(history) == 2
     assert history[0].role == "user"
     assert history[1].role == "assistant"
-    assert history[1].content == raw_response
+    assert history[1].content == "Hello `there` & <tag>"  # <think> not persisted
     assert (
         sent_msg.edit_text.await_args_list[-1].args[0]
         == "Hello <code>there</code> &amp; &lt;tag&gt;"
@@ -497,7 +497,7 @@ async def test_regenerate_success(mock_stream, update, context, store):
     await regenerate_command(update, context)
     session = store.get_active_session()
     history = store.load_history(session.id)
-    assert history[-1].content == raw_response
+    assert history[-1].content == "New response"  # <think> not persisted
     assert sent_msg.edit_text.await_args_list[-1].args[0] == "New response"
     assert sent_msg.edit_text.await_args_list[-1].kwargs["parse_mode"] == "HTML"
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
+from typing import Any
 
 from src.storage.models import (
     ChatMessage,
@@ -15,6 +17,41 @@ from src.storage.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_json(path: str, data: Any) -> None:
+    """Write *data* as JSON to *path* atomically (temp file + ``os.replace``).
+
+    A crash mid-write leaves the previous file intact instead of a truncated one.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _quarantine(path: str) -> str | None:
+    """Move an unreadable file aside as ``<path>.corrupt-<ts>`` so it is never overwritten."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = f"{path}.corrupt-{stamp}"
+    try:
+        os.replace(path, target)
+    except OSError as exc:
+        logger.error("Could not quarantine corrupt file %s: %s", path, exc)
+        return None
+    logger.error("Corrupt file %s moved to %s", path, target)
+    return target
 
 
 class SessionStoreManager:
@@ -43,15 +80,19 @@ class SessionStoreManager:
         if not os.path.exists(self._file_path):
             logger.info("No sessions file found, starting with empty store")
             return
-        with open(self._file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        self._store = SessionStore.model_validate(data)
+        try:
+            with open(self._file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._store = SessionStore.model_validate(data)
+        except (ValueError, OSError) as exc:  # JSONDecodeError and pydantic errors are ValueErrors
+            logger.error("Failed to read sessions file %s: %s", self._file_path, exc)
+            _quarantine(self._file_path)
+            self._store = SessionStore()
+            return
         logger.info("Loaded %d sessions from %s", len(self._store.sessions), self._file_path)
 
     def save(self) -> None:
-        os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
-        with open(self._file_path, "w", encoding="utf-8") as f:
-            json.dump(self._store.model_dump(), f, indent=2, ensure_ascii=False)
+        _atomic_write_json(self._file_path, self._store.model_dump())
 
     # ------------------------------------------------------------------
     # Session CRUD
@@ -129,20 +170,19 @@ class SessionStoreManager:
                 data = json.load(f)
             hfile = SessionHistoryFile.model_validate(data)
             return hfile.messages
-        except Exception:
-            logger.warning("Failed to load history for session %s, treating as empty", session_id)
+        except (ValueError, OSError) as exc:
+            # Never let the next append overwrite unreadable data: move it aside first.
+            logger.error("Failed to load history for session %s: %s", session_id, exc)
+            _quarantine(path)
             return []
 
     def save_history(self, session_id: str, messages: list[ChatMessage]) -> None:
-        os.makedirs(self._histories_dir, exist_ok=True)
         hfile = SessionHistoryFile(
             session_id=session_id,
             messages=messages,
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
-        path = self._history_path(session_id)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(hfile.model_dump(), f, indent=2, ensure_ascii=False)
+        _atomic_write_json(self._history_path(session_id), hfile.model_dump())
 
     def append_message(self, session_id: str, message: ChatMessage) -> None:
         messages = self.load_history(session_id)

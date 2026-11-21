@@ -2,34 +2,16 @@ import logging
 import tempfile
 
 from telegram import Update
-from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
-from src.bot.formatting import format_response, split_message
+from src.bot.responses import history_content, send_response
 from src.lms import sdk
 from src.storage.models import ChatMessage
 
 logger = logging.getLogger(__name__)
 
 STREAM_UPDATE_INTERVAL = 50
-
-
-async def _send_response(placeholder_message, raw_text: str) -> None:
-    """Edit the placeholder with the first chunk; send overflow as follow-up messages."""
-    formatted = format_response(raw_text)
-    chunks = split_message(formatted)
-    try:
-        await placeholder_message.edit_text(chunks[0], parse_mode="HTML")
-    except BadRequest as err:
-        logger.warning("HTML send failed (%s), retrying as plain text", err)
-        await placeholder_message.edit_text(chunks[0])
-    for chunk in chunks[1:]:
-        try:
-            await placeholder_message.reply_text(chunk, parse_mode="HTML")
-        except BadRequest as err:
-            logger.warning("HTML send failed for overflow chunk (%s), sending plain", err)
-            await placeholder_message.reply_text(chunk)
 
 
 @require_owner
@@ -72,12 +54,13 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     user_content = caption or "What do you see in this image?"
-    user_msg = ChatMessage(role="user", content=user_content, image_path=image_path)
-    store.append_message(session.id, user_msg)
-
-    # Load history and trim by policy for inference
+    # Build context from the history *before* this turn: the SDK appends the current
+    # user message (with the image) itself, so including it here would duplicate it.
     history = store.load_history(session.id)
     trimmed = sdk.trim_history(history, session.settings.history_policy)
+
+    user_msg = ChatMessage(role="user", content=user_content, image_path=image_path)
+    store.append_message(session.id, user_msg)
 
     sent_message = await update.effective_message.reply_text("⏳ Processing image...")
     full_response = ""
@@ -91,11 +74,13 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
             full_response += chunk
 
         if full_response:
-            await _send_response(sent_message, full_response)
-            store.append_message(
-                session.id,
-                ChatMessage(role="assistant", content=full_response),
-            )
+            await send_response(sent_message, full_response)
+            stored = history_content(full_response)
+            if stored:
+                store.append_message(
+                    session.id,
+                    ChatMessage(role="assistant", content=stored),
+                )
         else:
             await sent_message.edit_text("❌ No response from model.")
     except Exception as e:
