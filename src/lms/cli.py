@@ -12,18 +12,36 @@ class LmsCliError(Exception):
     pass
 
 
-async def _run_lms(*args: str) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "lms",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
+DEFAULT_TIMEOUT = 60.0
+LOAD_TIMEOUT = 600.0  # loading large models can take minutes
+
+
+async def _run_lms(*args: str, timeout: float = DEFAULT_TIMEOUT) -> str:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "lms",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise LmsCliError(
+            "The `lms` command was not found. Install the LM Studio CLI and add it to PATH."
+        ) from exc
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise LmsCliError(f"`lms {args[0]}` timed out after {int(timeout)}s") from exc
+
     if proc.returncode != 0:
-        error_msg = stderr.decode().strip() or stdout.decode().strip()
+        error_msg = (
+            stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+        )
         raise LmsCliError(error_msg)
-    return stdout.decode().strip()
+    return stdout.decode(errors="replace").strip()
 
 
 async def list_models() -> str:
@@ -44,7 +62,7 @@ async def load_model(model: str, config: LoadConfig | None = None) -> str:
         if config.identifier is not None:
             args.extend(["--identifier", config.identifier])
     args.append("-y")
-    return await _run_lms(*args)
+    return await _run_lms(*args, timeout=LOAD_TIMEOUT)
 
 
 async def unload_model(identifier: str) -> str:

@@ -18,6 +18,8 @@ from src.bot.handlers.models import (
     _format_loaded_list,
     _send_load_keyboard,
     _send_unload_keyboard,
+    perform_load,
+    perform_unload,
 )
 from src.lms import cli, sdk
 from src.lms.cli import LmsCliError
@@ -458,7 +460,7 @@ async def _handle_load_model_callback(query, context, data: str) -> None:
     model_key = data[len("models:loadmodel:"):]
     try:
         await query.edit_message_text(f"⏳ Loading {model_key}…")
-        await cli.load_model(model_key)
+        await perform_load(context, model_key)
         await query.edit_message_text(f"✅ Loaded {model_key}.")
     except LmsCliError as e:
         await query.edit_message_text(f"❌ Failed to load {model_key}: {e}")
@@ -468,7 +470,7 @@ async def _handle_unload_model_callback(query, context, data: str) -> None:
     identifier = data[len("models:unloadmodel:"):]
     try:
         await query.edit_message_text(f"⏳ Unloading {identifier}…")
-        await cli.unload_model(identifier)
+        await perform_unload(context, identifier)
         await query.edit_message_text(f"✅ Unloaded {identifier}.")
     except LmsCliError as e:
         await query.edit_message_text(f"❌ Failed to unload {identifier}: {e}")
@@ -674,7 +676,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
         context.chat_data["staged_model_settings"] = preset.settings.model_dump()
         await reply_ephemeral(
             query.message,
-            f"✅ Model preset '{preset.name}' staged. Values will apply on next /load."
+            f"✅ Model preset '{preset.name}' staged. Values will apply on the next model load."
         )
         return
 
@@ -809,7 +811,7 @@ async def _execute_models_load(text: str, update: Update, context) -> None:
         await reply_ephemeral(update.effective_message, "❌ Model identifier cannot be empty.")
         return
     try:
-        result = await cli.load_model(text)
+        result = await perform_load(context, text)
         await reply_ephemeral(update.effective_message, f"✅ Model loaded successfully.\n{result}")
         context.chat_data["pending_input"] = None
         logger.info("Model loaded via menu: %s", text)
@@ -823,7 +825,7 @@ async def _execute_models_unload(text: str, update: Update, context) -> None:
         await reply_ephemeral(update.effective_message, "❌ Model identifier cannot be empty.")
         return
     try:
-        result = await cli.unload_model(text)
+        result = await perform_unload(context, text)
         await reply_ephemeral(update.effective_message, f"✅ Model unloaded.\n{result}")
         context.chat_data["pending_input"] = None
         logger.info("Model unloaded via menu: %s", text)
@@ -1050,7 +1052,7 @@ async def _execute_model_settings_update(
     context.chat_data["staged_model_settings"] = staged
     await reply_ephemeral(
         update.effective_message,
-        f"✅ Model {key} staged to '{staged[key]}'. Will apply on next /load."
+        f"✅ Model {key} staged to '{staged[key]}'. Will apply on the next model load."
     )
     context.chat_data["pending_input"] = None
 

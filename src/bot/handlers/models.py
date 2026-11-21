@@ -50,6 +50,49 @@ async def cmd_reply(
     return sent
 
 
+async def perform_load(
+    context: ContextTypes.DEFAULT_TYPE,
+    model: str,
+    *,
+    gpu: str | None = None,
+    context_length: int | None = None,
+    identifier: str | None = None,
+) -> str:
+    """Load *model*, applying staged model settings, and bind it to the active chat.
+
+    Explicit arguments win over staged values (set via model presets or the model
+    settings menu). Staged values are consumed only after a successful load.
+    """
+    staged = context.chat_data.get("staged_model_settings") or {}
+    config = LoadConfig(
+        gpu=gpu or staged.get("gpu") or "auto",
+        context_length=context_length if context_length is not None
+        else staged.get("context_length"),
+        identifier=identifier or staged.get("identifier"),
+    )
+    result = await cli.load_model(model, config)
+    context.chat_data.pop("staged_model_settings", None)
+
+    store = context.bot_data.get("store")
+    session = store.get_active_session() if store is not None else None
+    if session is not None:
+        session.model_identifier = config.identifier or model
+        store.update_session(session)
+    return result
+
+
+async def perform_unload(context: ContextTypes.DEFAULT_TYPE, identifier: str) -> str:
+    """Unload a model and clear it from any chat that was bound to it."""
+    result = await cli.unload_model(identifier)
+    store = context.bot_data.get("store")
+    if store is not None:
+        for session in store.list_sessions():
+            if session.model_identifier == identifier:
+                session.model_identifier = None
+                store.update_session(session)
+    return result
+
+
 def _format_downloaded_list(models) -> str:
     if not models:
         return "No models found."
@@ -231,7 +274,7 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     model = args[0]
-    gpu = "auto"
+    gpu = None
     context_length = None
     identifier = None
 
@@ -268,10 +311,10 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif arg.startswith("id="):
             identifier = arg[3:]
 
-    config = LoadConfig(gpu=gpu, context_length=context_length, identifier=identifier)
-
     try:
-        await cli.load_model(model, config)
+        await perform_load(
+            context, model, gpu=gpu, context_length=context_length, identifier=identifier
+        )
         await cmd_reply(update.effective_message, context, f"✅ Model {model} loaded successfully.")
     except LmsCliError as e:
         await cmd_reply(update.effective_message, context, f"❌ Load failed: {e}")
@@ -287,7 +330,7 @@ async def unload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     identifier = args[0]
 
     try:
-        await cli.unload_model(identifier)
+        await perform_unload(context, identifier)
         await cmd_reply(update.effective_message, context, f"✅ Model {identifier} unloaded.")
     except LmsCliError as e:
         await cmd_reply(update.effective_message, context, f"❌ {e}")
