@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
@@ -102,7 +103,7 @@ def _format_downloaded_list(models) -> str:
         model_key = getattr(model, "model_key", "unknown")
         info = getattr(model, "info", None)
         size_bytes = getattr(info, "size_bytes", 0) or 0
-        lines.append(f"• {model_key}  {_format_size(int(size_bytes))}")
+        lines.append(f"• {html.escape(str(model_key))}  {_format_size(int(size_bytes))}")
 
     return "📦 Available models:\n" + "\n".join(lines)
 
@@ -117,7 +118,7 @@ def _format_loaded_list(handles) -> str:
         # a failed websocket reconnection on inactive connections
         identifier = getattr(handle, "identifier", "unknown")
         size_bytes = getattr(handle, "size_bytes", 0) or 0
-        lines.append(f"• {identifier}  {_format_size(int(size_bytes))}")
+        lines.append(f"• {html.escape(str(identifier))}  {_format_size(int(size_bytes))}")
 
     return "🧠 Loaded models:\n" + "\n".join(lines)
 

@@ -24,8 +24,9 @@ class TestFormatResponse:
         assert format_response("<think>only reasoning</think>") == "<i>(no response)</i>"
 
     def test_plain_prose_markdown_converted(self):
-        text = "Hello world. **bold** [link](url)"
-        assert format_response(text) == 'Hello world. <b>bold</b> <a href="url">link</a>'
+        text = "Hello world. **bold** [link](https://x.io)"
+        expected = 'Hello world. <b>bold</b> <a href="https://x.io">link</a>'
+        assert format_response(text) == expected
 
     def test_html_escape_plain_text(self):
         text = "Use <tag> & compare > values"
@@ -122,3 +123,64 @@ class TestSplitMessage:
         text = ("word " * 1000).strip()
         chunks = split_message(text)
         assert all(len(c) <= 4096 for c in chunks)
+
+
+class TestMarkdownEdgeCases:
+    def test_arithmetic_asterisks_not_italic(self):
+        assert format_response("2 * 3 * 4") == "2 * 3 * 4"
+
+    def test_bullet_list_asterisks_untouched(self):
+        assert format_response("* one\n* two") == "* one\n* two"
+
+    def test_safe_link_rendered(self):
+        out = format_response("[site](https://example.com/a?b=1)")
+        assert out == '<a href="https://example.com/a?b=1">site</a>'
+
+    def test_unsafe_link_scheme_not_rendered(self):
+        out = format_response("[x](javascript:alert(1))")
+        assert "<a " not in out
+
+    def test_quote_in_url_cannot_break_attribute(self):
+        out = format_response('[x](https://e.com/"onclick="y)')
+        assert '"onclick' not in out
+
+    def test_small_sizes(self):
+        assert _format_size(512 * 1024) == "512 KB"
+        assert _format_size(100) == "100 B"
+
+
+class TestModelListEscaping:
+    def test_names_are_html_escaped(self):
+        from types import SimpleNamespace
+
+        from src.bot.handlers.models import _format_downloaded_list, _format_loaded_list
+
+        model = SimpleNamespace(model_key="a<b>&c", info=SimpleNamespace(size_bytes=0))
+        handle = SimpleNamespace(identifier="x<y", size_bytes=0)
+        assert "a&lt;b&gt;&amp;c" in _format_downloaded_list([model])
+        assert "x&lt;y" in _format_loaded_list([handle])
+
+
+class TestMenuTextsAreValidHtml:
+    def test_all_static_texts_parse(self):
+        import html.parser
+
+        from src.bot.handlers.help import HELP_TEXT
+        from src.bot.handlers.menu.keyboards import HELP_MODELS, HELP_SESSIONS, HELP_SETTINGS
+
+        for text in (HELP_TEXT, HELP_MODELS, HELP_SESSIONS, HELP_SETTINGS):
+            parser = html.parser.HTMLParser()
+            parser.feed(text)
+            assert "*" not in text.replace("* ", "")  # no leftover Markdown markers
+            assert "`" not in text
+
+    def test_current_settings_escapes_user_input(self):
+        from types import SimpleNamespace
+
+        from src.bot.handlers.menu.keyboards import render_current_settings
+        from src.storage.models import SessionGenerationSettings
+
+        settings = SessionGenerationSettings(system_prompt="<b>&`x`", stop_strings=["<end>"])
+        text = render_current_settings(SimpleNamespace(settings=settings))
+        assert "&lt;b&gt;&amp;`x`" in text
+        assert "&lt;end&gt;" in text

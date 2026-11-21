@@ -10,26 +10,27 @@ MENU_REPLY_KEYBOARD = ReplyKeyboardMarkup(
     is_persistent=True,
 )
 
-HELP_TEXT = """🤖 *LMStudioBot* — Control LM Studio from Telegram
+HELP_TEXT = """🤖 <b>LMStudioBot</b> — Control LM Studio from Telegram
 
-*Model Management*
+<b>Model Management</b>
 /models — List available models on disk
 /loaded — List currently loaded models
-/load `<model>` `[gpu=max|auto|0.0-1.0]` `[ctx=N]` `[id=name]` — Load a model
-/unload `<model>` — Unload a model
+/load <code>&lt;model&gt;</code> <code>[gpu=max|auto|0.0-1.0]</code> <code>[ctx=N]</code> \
+<code>[id=name]</code> — Load a model
+/unload <code>&lt;model&gt;</code> — Unload a model
 
-*Chat Sessions*
-/newchat `[name]` — Create a new chat session
+<b>Chat Sessions</b>
+/newchat <code>[name]</code> — Create a new chat session
 /chats — List all chat sessions
-/switchchat `<id_or_number>` — Switch active chat
-/removechat `<id_or_number>` — Delete a chat session
+/switchchat <code>&lt;id_or_number&gt;</code> — Switch active chat
+/removechat <code>&lt;id_or_number&gt;</code> — Delete a chat session
 
-*Settings*
-/setprompt `[prompt]` — Set/clear the system prompt
-/set `<setting>` `<value>` — Adjust inference settings
-  ↳ temperature, max\\_tokens, top\\_p, top\\_k, repeat\\_penalty, stop\\_strings, seed
+<b>Settings</b>
+/setprompt <code>[prompt]</code> — Set/clear the system prompt
+/set <code>&lt;setting&gt; &lt;value&gt;</code> — Adjust inference settings
+  ↳ temperature, max_tokens, top_p, top_k, repeat_penalty, stop_strings, seed
 
-*Chat*
+<b>Chat</b>
 Send any text message — Chat with the model
 Send a photo — Analyze image with vision model
 /regenerate — Regenerate last model answer
@@ -50,4 +51,4 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 @require_owner
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(HELP_TEXT, parse_mode="Markdown")
+    await update.effective_message.reply_text(HELP_TEXT, parse_mode="HTML")

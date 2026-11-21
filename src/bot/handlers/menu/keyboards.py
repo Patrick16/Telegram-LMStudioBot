@@ -1,5 +1,7 @@
 """Keyboard builders, help texts and settings rendering for the inline menu."""
 
+import html
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 # ---------------------------------------------------------------------------
@@ -7,30 +9,30 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # ---------------------------------------------------------------------------
 
 HELP_MODELS = (
-    "📦 *Model Management Help*\n\n"
-    "• *List Models* — Shows all models available on disk in LM Studio.\n"
-    "• *Loaded Models* — Shows models currently loaded into memory.\n"
-    "• *Load Model* — Loads a model by its identifier (e.g. `qwen/qwen3-4b`).\n"
-    "• *Unload Model* — Unloads a model by its identifier to free memory."
+    "📦 <b>Model Management Help</b>\n\n"
+    "• <b>List Models</b> — Shows all models available on disk in LM Studio.\n"
+    "• <b>Loaded Models</b> — Shows models currently loaded into memory.\n"
+    "• <b>Load Model</b> — Loads a model by its identifier (e.g. <code>qwen/qwen3-4b</code>).\n"
+    "• <b>Unload Model</b> — Unloads a model by its identifier to free memory."
 )
 
 HELP_SESSIONS = (
-    "🧠 *Sessions Help*\n\n"
-    "• *New Chat* — Creates a new chat session (auto-named if no name given).\n"
-    "• *List Chats* — Shows all sessions; tap one to switch to it.\n"
-    "• *Remove Chat* — Shows all sessions; tap one to delete it."
+    "🧠 <b>Sessions Help</b>\n\n"
+    "• <b>New Chat</b> — Creates a new chat session (auto-named if no name given).\n"
+    "• <b>List Chats</b> — Shows all sessions; tap one to switch to it.\n"
+    "• <b>Remove Chat</b> — Shows all sessions; tap one to delete it."
 )
 
 HELP_SETTINGS = (
-    "⚙️ *Settings Help*\n\n"
-    "• *Current Settings* — View both model and session settings at a glance.\n"
-    "• *Model Settings* — Adjust model-scoped runtime settings "
+    "⚙️ <b>Settings Help</b>\n\n"
+    "• <b>Current Settings</b> — View both model and session settings at a glance.\n"
+    "• <b>Model Settings</b> — Adjust model-scoped runtime settings "
     "(GPU, context length, identifier).\n"
-    "• *Session Settings* — Adjust session-scoped generation "
+    "• <b>Session Settings</b> — Adjust session-scoped generation "
     "settings (temperature, max tokens, etc.).\n"
-    "• *Model Presets* — Browse and apply saved model setting presets.\n"
-    "• *Session Presets* — Browse and apply saved session setting presets.\n"
-    "• *History Reuse Policy* — Control how chat history is assembled for inference."
+    "• <b>Model Presets</b> — Browse and apply saved model setting presets.\n"
+    "• <b>Session Presets</b> — Browse and apply saved session setting presets.\n"
+    "• <b>History Reuse Policy</b> — Control how chat history is assembled for inference."
 )
 
 # ---------------------------------------------------------------------------
@@ -207,37 +209,41 @@ def build_help_settings() -> tuple[str, InlineKeyboardMarkup]:
 # Current settings renderer
 # ---------------------------------------------------------------------------
 
-def render_current_settings(session, model_info: str | None = None) -> str:
-    """Build a combined current-settings text for both scopes."""
-    s = session.settings
-    lines = ["📋 *Current Settings*\n"]
+def _code(value) -> str:
+    return f"<code>{html.escape(str(value), quote=False)}</code>"
 
-    lines.append("*Session Settings*")
+
+def render_current_settings(session, model_info: str | None = None) -> str:
+    """Build a combined current-settings text (Telegram HTML) for both scopes."""
+    s = session.settings
+    lines = ["📋 <b>Current Settings</b>\n"]
+
+    lines.append("<b>Session Settings</b>")
     prompt_display = (
         s.system_prompt[:60] + '…'
         if len(s.system_prompt) > 60
         else s.system_prompt or '(none)'
     )
-    lines.append(f"  System Prompt: `{prompt_display}`")
-    lines.append(f"  Temperature: `{s.temperature}`")
-    lines.append(f"  Max Tokens: `{s.max_tokens}`")
-    lines.append(f"  Top-P: `{s.top_p}`")
-    lines.append(f"  Top-K: `{s.top_k if s.top_k is not None else '(default)'}`")
+    lines.append(f"  System Prompt: {_code(prompt_display)}")
+    lines.append(f"  Temperature: {_code(s.temperature)}")
+    lines.append(f"  Max Tokens: {_code(s.max_tokens)}")
+    lines.append(f"  Top-P: {_code(s.top_p)}")
+    lines.append(f"  Top-K: {_code(s.top_k if s.top_k is not None else '(default)')}")
     lines.append(
-        f"  Repeat Penalty: "
-        f"`{s.repeat_penalty if s.repeat_penalty is not None else '(default)'}`"
+        "  Repeat Penalty: "
+        + _code(s.repeat_penalty if s.repeat_penalty is not None else "(default)")
     )
-    lines.append(f"  Stop Strings: `{s.stop_strings or '(none)'}`")
-    lines.append(f"  Seed: `{s.seed if s.seed is not None else '(random)'}`")
-    lines.append(f"  History Policy: `{s.history_policy.mode}`")
+    lines.append(f"  Stop Strings: {_code(s.stop_strings or '(none)')}")
+    lines.append(f"  Seed: {_code(s.seed if s.seed is not None else '(random)')}")
+    lines.append(f"  History Policy: {_code(s.history_policy.mode)}")
     if s.history_policy.mode == "last_n_pairs" and s.history_policy.message_pair_limit is not None:
-        lines.append(f"    Pair Limit: `{s.history_policy.message_pair_limit}`")
+        lines.append(f"    Pair Limit: {_code(s.history_policy.message_pair_limit)}")
 
     lines.append("")
-    lines.append("*Model Runtime*")
+    lines.append("<b>Model Runtime</b>")
     if model_info:
-        lines.append(f"  Loaded: `{model_info}`")
+        lines.append(f"  Loaded: {_code(model_info)}")
     else:
-        lines.append("  _(No model loaded)_")
+        lines.append("  <i>(No model loaded)</i>")
 
     return "\n".join(lines)

@@ -179,7 +179,7 @@ async def _handle_help_section(query, context, data: str) -> None:
         return
     text, keyboard = builder()
     try:
-        await query.edit_message_text(text=text, reply_markup=keyboard, parse_mode="Markdown")
+        await query.edit_message_text(text=text, reply_markup=keyboard, parse_mode="HTML")
     except BadRequest as e:
         if "message is not modified" not in str(e).lower():
             logger.error("Failed to show help topic %s: %s", data, e)
@@ -356,7 +356,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
             await query.edit_message_text(
                 text=text,
                 reply_markup=build_back_button("menu:settings"),
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
         except BadRequest as e:
             if "message is not modified" not in str(e).lower():
@@ -389,9 +389,9 @@ async def _handle_settings_action(query, context, data: str) -> None:
         try:
             current = session.settings.history_policy.mode
             await query.edit_message_text(
-                text=f"📜 History Reuse Policy\nCurrent: `{current}`",
+                text=f"📜 History Reuse Policy\nCurrent: <code>{current}</code>",
                 reply_markup=build_history_policy_menu(),
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
         except BadRequest:
             pass

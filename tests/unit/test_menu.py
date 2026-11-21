@@ -920,7 +920,7 @@ class TestHandleHelpSection:
         await _handle_help_section(query, context, "menu:help:models")
         call_kwargs = query.edit_message_text.call_args[1]
         assert "Model Management" in call_kwargs["text"]
-        assert call_kwargs["parse_mode"] == "Markdown"
+        assert call_kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
     async def test_sessions_help(self, query, context):

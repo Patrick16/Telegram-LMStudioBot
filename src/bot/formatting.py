@@ -11,9 +11,11 @@ _CODE_RE = re.compile(r"```(?:[^\n`]*)\n?(.*?)```|`([^`\n]+)`", re.DOTALL)
 _MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
 _MD_BOLD_ITALIC_RE = re.compile(r"\*\*\*(.+?)\*\*\*")
 _MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
-_MD_ITALIC_RE = re.compile(r"\*([^*\n]+?)\*")
+# Italic only when the asterisks hug the text: "2 * 3 * 4" must stay untouched.
+_MD_ITALIC_RE = re.compile(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])")
 _MD_STRIKE_RE = re.compile(r"~~(.+?)~~")
-_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+_SAFE_LINK_SCHEMES = ("http://", "https://", "tg://", "mailto:")
 
 
 def strip_think_tags(text: str) -> str:
@@ -21,6 +23,14 @@ def strip_think_tags(text: str) -> str:
     text = _THINK_BLOCK_RE.sub("", text)
     text = _UNCLOSED_THINK_RE.sub("", text)
     return text.strip()
+
+
+def _render_link(match: re.Match) -> str:
+    """Render ``[label](url)`` as an anchor, but only for safe URL schemes."""
+    label, url = match.group(1), match.group(2)
+    if not url.lower().startswith(_SAFE_LINK_SCHEMES):
+        return match.group(0)
+    return f'<a href="{url.replace(chr(34), "&quot;")}">{label}</a>'
 
 
 def _markdown_to_html(text: str) -> str:
@@ -35,7 +45,7 @@ def _markdown_to_html(text: str) -> str:
     text = _MD_BOLD_RE.sub(r"<b>\1</b>", text)
     text = _MD_ITALIC_RE.sub(r"<i>\1</i>", text)
     text = _MD_STRIKE_RE.sub(r"<s>\1</s>", text)
-    text = _MD_LINK_RE.sub(r'<a href="\2">\1</a>', text)
+    text = _MD_LINK_RE.sub(_render_link, text)
     return text
 
 
@@ -48,7 +58,11 @@ def _format_size(size_bytes: int) -> str:
     """Convert a raw byte count to a short human-readable size string."""
     if size_bytes >= 1024 ** 3:
         return f"{size_bytes / (1024 ** 3):.1f} GB"
-    return f"{size_bytes // (1024 ** 2)} MB"
+    if size_bytes >= 1024 ** 2:
+        return f"{size_bytes // (1024 ** 2)} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes // 1024} KB"
+    return f"{size_bytes} B"
 
 
 def format_response(text: str) -> str:
