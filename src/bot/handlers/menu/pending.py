@@ -55,6 +55,8 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _execute_models_load(text, update, context)
     elif pending == "models:unload":
         await _execute_models_unload(text, update, context)
+    elif pending == "sessions:rename":
+        await _execute_sessions_rename(text, update, context)
     elif pending == "sessions:new":
         await _execute_sessions_new(text, update, context)
     elif pending.startswith("settings:model:"):
@@ -147,6 +149,30 @@ async def _execute_settings_update(
     await reply_ephemeral(update.effective_message, message)
     context.chat_data["pending_input"] = None
     logger.info("Setting %s updated via menu", key)
+
+
+MAX_CHAT_NAME = 64
+
+
+async def _execute_sessions_rename(text: str, update: Update, context) -> None:
+    store = context.bot_data["store"]
+    session = store.get_active_session()
+    if session is None:
+        await reply_ephemeral(update.effective_message, "❌ No active chat.")
+        context.chat_data["pending_input"] = None
+        return
+    if not text:
+        await reply_ephemeral(update.effective_message, "❌ The name cannot be empty.")
+        return
+    if len(text) > MAX_CHAT_NAME:
+        await reply_ephemeral(
+            update.effective_message, f"❌ The name must be {MAX_CHAT_NAME} characters or fewer."
+        )
+        return
+    session.name = text
+    store.update_session(session)
+    await reply_ephemeral(update.effective_message, f"✅ Chat renamed to: {text}")
+    context.chat_data["pending_input"] = None
 
 
 async def _execute_model_settings_update(

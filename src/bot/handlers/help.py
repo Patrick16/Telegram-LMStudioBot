@@ -26,6 +26,7 @@ HELP_TEXT = """🤖 <b>LMStudioBot</b> — Control LM Studio from Telegram
 /chats — List all chat sessions
 /switchchat <code>&lt;id_or_number&gt;</code> — Switch active chat
 /removechat <code>&lt;id_or_number&gt;</code> — Delete a chat session
+/renamechat <code>&lt;name&gt;</code> — Rename the active chat
 
 <b>Settings</b>
 /setprompt <code>[prompt]</code> — Set/clear the system prompt

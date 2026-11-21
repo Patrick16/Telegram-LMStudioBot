@@ -1,5 +1,6 @@
 """Menu navigation: ``/menu`` command, callback routing and per-section action handlers."""
 
+import asyncio
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -28,9 +29,12 @@ from src.bot.handlers.menu.keyboards import (
     render_main_menu_text,
 )
 from src.bot.handlers.menu.pending import CB_INPUT_CANCEL, request_input
+from src.bot.pagination import NOOP
 from src.bot.handlers.models import (
     _format_downloaded_list,
+    _build_load_keyboard,
     _format_loaded_list,
+    _load_prompt,
     _send_load_keyboard,
     _send_unload_keyboard,
     perform_load,
@@ -131,6 +135,9 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         logger.debug("Could not answer callback query (likely expired): %s", e)
     data = query.data
     logger.debug("Callback received: %s", data)
+
+    if data == NOOP:
+        return
 
     # Navigation
     if data in ("menu:main", "menu:models", "menu:sessions",
@@ -262,6 +269,10 @@ async def _handle_models_action(query, context, data: str) -> None:
         logger.info("Loaded models requested via menu")
         return
 
+    if data.startswith("models:loadpage:"):
+        await _show_load_page(query, context, int(data[len("models:loadpage:"):]))
+        return
+
     if data == "models:load":
         await _send_load_keyboard(query.message, context)
         logger.info("Load keyboard opened via menu")
@@ -271,6 +282,26 @@ async def _handle_models_action(query, context, data: str) -> None:
         await _send_unload_keyboard(query.message, context)
         logger.info("Unload keyboard opened via menu")
         return
+
+
+async def _show_load_page(query, context, page: int) -> None:
+    config = context.bot_data["config"]
+    try:
+        models, handles = await asyncio.gather(
+            sdk.list_downloaded_models(config.LMS_HOST, config.LMS_PORT),
+            sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT),
+        )
+    except Exception:
+        await reply_ephemeral(query.message, "❌ Could not connect to LM Studio. Is it running?")
+        return
+    loaded = {getattr(h, "identifier", None) for h in handles}
+    try:
+        await query.edit_message_text(
+            _load_prompt(len(models), page),
+            reply_markup=_build_load_keyboard(models, loaded, page),
+        )
+    except BadRequest:
+        pass
 
 
 async def _handle_load_model_callback(query, context, data: str) -> None:
@@ -297,6 +328,25 @@ async def _handle_unload_model_callback(query, context, data: str) -> None:
 # Sessions actions handler
 # ---------------------------------------------------------------------------
 
+_SESSIONS_PAGE_TITLES = {
+    "switch": "🗂 Select a chat:",
+    "remove_ask": "🗑 Select a chat to remove:",
+}
+
+
+async def _show_sessions_page(query, store, action: str, page: int) -> None:
+    sessions = store.list_sessions()
+    keyboard = build_sessions_list_keyboard(
+        sessions, action, page=page, active_id=store.store.active_session_id
+    )
+    try:
+        await query.edit_message_text(
+            text=_SESSIONS_PAGE_TITLES.get(action, "🗂 Select a chat:"), reply_markup=keyboard
+        )
+    except BadRequest:
+        pass
+
+
 async def _handle_sessions_action(query, context, data: str) -> None:
     store = context.bot_data["store"]
 
@@ -318,11 +368,7 @@ async def _handle_sessions_action(query, context, data: str) -> None:
             except BadRequest:
                 pass
             return
-        keyboard = build_sessions_list_keyboard(sessions, "switch")
-        try:
-            await query.edit_message_text(text="🗂 Select a chat:", reply_markup=keyboard)
-        except BadRequest:
-            pass
+        await _show_sessions_page(query, store, "switch", 0)
         return
 
     if data == "sessions:remove":
@@ -336,13 +382,21 @@ async def _handle_sessions_action(query, context, data: str) -> None:
             except BadRequest:
                 pass
             return
-        keyboard = build_sessions_list_keyboard(sessions, "remove_ask")
-        try:
-            await query.edit_message_text(
-                text="🗑 Select a chat to remove:", reply_markup=keyboard
-            )
-        except BadRequest:
-            pass
+        await _show_sessions_page(query, store, "remove_ask", 0)
+        return
+
+    if data.startswith("sessions:page:"):
+        _, _, action, page = data.split(":")
+        await _show_sessions_page(query, store, action, int(page))
+        return
+
+    if data == "sessions:rename":
+        if store.get_active_session() is None:
+            await reply_ephemeral(query.message, "❌ No active chat. Create one first.")
+            return
+        await request_input(
+            query.message, context, "sessions:rename", "Enter a new name for the current chat:"
+        )
         return
 
     if data.startswith("sessions:switch:"):

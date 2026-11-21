@@ -81,3 +81,22 @@ async def removechat_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     name = session.name
     store.delete_session(session_id)
     await _cmd_reply(update.effective_message, f'🗑 Chat "{name}" removed.')
+
+
+@require_owner
+async def renamechat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    store = context.bot_data["store"]
+    session = store.get_active_session()
+    if session is None:
+        await _cmd_reply(update.effective_message, "❌ No active chat. Use /newchat first.")
+        return
+    name = " ".join(context.args).strip() if context.args else ""
+    if not name:
+        await _cmd_reply(update.effective_message, "❌ Usage: /renamechat <new name>")
+        return
+    if len(name) > 64:
+        await _cmd_reply(update.effective_message, "❌ The name must be 64 characters or fewer.")
+        return
+    session.name = name
+    store.update_session(session)
+    await _cmd_reply(update.effective_message, f'✅ Chat renamed to "{name}".')

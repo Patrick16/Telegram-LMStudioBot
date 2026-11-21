@@ -13,6 +13,7 @@ from src.bot.handlers.chats import (
     chats_command,
     newchat_command,
     removechat_command,
+    renamechat_command,
     switchchat_command,
 )
 from src.bot.handlers.help import help_command, start_command
@@ -123,6 +124,7 @@ def main() -> None:
         app.add_handler(CommandHandler("chats", chats_command))
         app.add_handler(CommandHandler("switchchat", switchchat_command))
         app.add_handler(CommandHandler("removechat", removechat_command))
+        app.add_handler(CommandHandler("renamechat", renamechat_command))
 
         # Settings
         app.add_handler(CommandHandler("setprompt", setprompt_command))

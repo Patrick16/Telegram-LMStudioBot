@@ -4,6 +4,8 @@ import html
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from src.bot.pagination import nav_row, paginate
+
 # ---------------------------------------------------------------------------
 # Help text constants
 # ---------------------------------------------------------------------------
@@ -120,7 +122,10 @@ def build_sessions_menu() -> InlineKeyboardMarkup:
             InlineKeyboardButton("➕ New Chat", callback_data="sessions:new"),
             InlineKeyboardButton("🗂 List Chats", callback_data="sessions:list"),
         ],
-        [InlineKeyboardButton("🗑 Remove Chat", callback_data="sessions:remove")],
+        [
+            InlineKeyboardButton("✏️ Rename Chat", callback_data="sessions:rename"),
+            InlineKeyboardButton("🗑 Remove Chat", callback_data="sessions:remove"),
+        ],
         [InlineKeyboardButton("⬅ Back", callback_data="menu:main")],
     ])
 
@@ -215,12 +220,18 @@ def build_help_menu() -> InlineKeyboardMarkup:
     ])
 
 
-def build_sessions_list_keyboard(sessions, action: str) -> InlineKeyboardMarkup:
-    """Build dynamic keyboard with one button per session."""
+def build_sessions_list_keyboard(
+    sessions, action: str, page: int = 0, active_id: str | None = None
+) -> InlineKeyboardMarkup:
+    """One button per session (paginated); the active chat is marked with ▶."""
+    shown, page, pages = paginate(sessions, page)
     rows = []
-    for s in sessions:
-        cb = f"sessions:{action}:{s.id}"
-        rows.append([InlineKeyboardButton(s.name, callback_data=cb)])
+    for s in shown:
+        label = f"▶ {s.name}" if s.id == active_id else s.name
+        rows.append([InlineKeyboardButton(label, callback_data=f"sessions:{action}:{s.id}")])
+    navigation = nav_row(f"sessions:page:{action}:", page, pages)
+    if navigation:
+        rows.append(navigation)
     rows.append([InlineKeyboardButton("⬅ Back", callback_data="menu:sessions")])
     return InlineKeyboardMarkup(rows)
 

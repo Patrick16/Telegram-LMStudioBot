@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 from src.bot.auth import require_owner
 from src.bot.ephemeral import schedule_delete
 from src.bot.formatting import _format_size
+from src.bot.pagination import nav_row, paginate
 from src.lms import cli, sdk
 from src.lms.cli import LmsCliError
 from src.storage.models import LoadConfig
@@ -149,9 +150,10 @@ def _build_limit_note(total: int) -> str:
     return f"\n(showing 100 of {total}; {total - 100} model(s) not shown)"
 
 
-def _build_load_keyboard(models, loaded_keys: set[str]) -> InlineKeyboardMarkup:
+def _build_load_keyboard(models, loaded_keys: set[str], page: int = 0) -> InlineKeyboardMarkup:
+    shown, page, pages = paginate(models, page)
     rows = []
-    for model in models[:_MAX_BUTTONS]:
+    for model in shown:
         model_key = getattr(model, "model_key", "unknown")
         info = getattr(model, "info", None)
         size_bytes = getattr(info, "size_bytes", 0) or 0
@@ -159,7 +161,16 @@ def _build_load_keyboard(models, loaded_keys: set[str]) -> InlineKeyboardMarkup:
         label = _truncate_button_label(f"{prefix}{model_key}  {_format_size(int(size_bytes))}")
         callback_data = _truncate_callback_data("models:loadmodel:", model_key)
         rows.append([InlineKeyboardButton(label, callback_data=callback_data)])
+    navigation = nav_row("models:loadpage:", page, pages)
+    if navigation:
+        rows.append(navigation)
     return InlineKeyboardMarkup(rows)
+
+
+def _load_prompt(total: int, page: int) -> str:
+    _, page, pages = paginate(range(total), page)
+    suffix = f" (page {page + 1}/{pages})" if pages > 1 else ""
+    return f"Select a model to load{suffix}:"
 
 
 def _build_unload_keyboard(handles) -> InlineKeyboardMarkup:
@@ -207,11 +218,11 @@ async def _send_load_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> Non
         if handle is not None and getattr(handle, "identifier", None)
     }
     keyboard = _build_load_keyboard(models, loaded_keys)
-    note = _build_limit_note(len(models))
     await cmd_reply(
         message, context,
-        f"Select a model to load:{note}",
+        _load_prompt(len(models), 0),
         reply_markup=keyboard,
+        ephemeral=False,
     )
 
 

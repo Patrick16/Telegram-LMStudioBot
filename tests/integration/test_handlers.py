@@ -188,7 +188,7 @@ async def test_load_no_args_shows_keyboard(mock_downloaded, mock_loaded, update,
 @pytest.mark.asyncio
 @patch("src.bot.handlers.models.sdk.list_loaded_models", new_callable=AsyncMock)
 @patch("src.bot.handlers.models.sdk.list_downloaded_models", new_callable=AsyncMock)
-async def test_load_no_args_shows_overflow_note(mock_downloaded, mock_loaded, update, context):
+async def test_load_no_args_paginates_long_lists(mock_downloaded, mock_loaded, update, context):
     context.args = []
     mock_downloaded.return_value = [
         make_downloaded_model(f"model-{i}", 1024 * 1024 * 1024) for i in range(120)
@@ -199,8 +199,11 @@ async def test_load_no_args_shows_overflow_note(mock_downloaded, mock_loaded, up
 
     reply = update.effective_message.reply_text.call_args.args[0]
     keyboard = update.effective_message.reply_text.call_args.kwargs["reply_markup"]
-    assert "showing 100 of 120" in reply
-    assert len(keyboard.inline_keyboard) == 100
+    assert "page 1/15" in reply
+    # 8 models + one navigation row (counter and "next" button)
+    assert len(keyboard.inline_keyboard) == 9
+    nav = [b.callback_data for b in keyboard.inline_keyboard[-1]]
+    assert nav == ["noop", "models:loadpage:1"]
 
 
 @pytest.mark.asyncio

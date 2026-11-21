@@ -299,13 +299,15 @@ class TestModelKeyboardBuilders:
         assert button.text.startswith("🟢 ")
         assert len(button.text) <= 64
 
-    def test_build_load_keyboard_caps_at_100_buttons(self):
+    def test_build_load_keyboard_is_paginated(self):
         models = [
             make_downloaded_model(f"model-{i}", 1024 * 1024 * 1024)
             for i in range(150)
         ]
         kb = _build_load_keyboard(models, set())
-        assert len(kb.inline_keyboard) == 100
+        assert len(kb.inline_keyboard) == 9  # 8 models + navigation
+        last = _build_load_keyboard(models, set(), page=999)  # clamped to the last page
+        assert last.inline_keyboard[0][0].callback_data.endswith("model-144")
 
     def test_build_unload_keyboard_truncates_and_caps(self):
         handles = [
