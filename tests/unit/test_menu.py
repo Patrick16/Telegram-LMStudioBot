@@ -457,7 +457,7 @@ class TestMenuCallbackHandler:
 
 class TestModelsAction:
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.sdk.list_downloaded_models", new_callable=AsyncMock)
+    @patch("src.lms.sdk.list_downloaded_models", new_callable=AsyncMock)
     async def test_list_models(self, mock_list, query, context):
         mock_list.return_value = [make_downloaded_model("model1", 1024 * 1024 * 1024)]
         await _handle_models_action(query, context, "models:list")
@@ -467,7 +467,7 @@ class TestModelsAction:
         assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.sdk.list_downloaded_models", new_callable=AsyncMock)
+    @patch("src.lms.sdk.list_downloaded_models", new_callable=AsyncMock)
     async def test_list_models_error(self, mock_list, query, context):
         mock_list.side_effect = RuntimeError("Connection refused")
         await _handle_models_action(query, context, "models:list")
@@ -475,7 +475,7 @@ class TestModelsAction:
         assert "Could not list" in reply
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.sdk.list_loaded_models", new_callable=AsyncMock)
+    @patch("src.lms.sdk.list_loaded_models", new_callable=AsyncMock)
     async def test_loaded_models(self, mock_loaded, query, context):
         mock_loaded.return_value = [make_loaded_handle("id1", 1024 * 1024 * 1024)]
         await _handle_models_action(query, context, "models:loaded")
@@ -484,14 +484,14 @@ class TestModelsAction:
         assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu._send_load_keyboard", new_callable=AsyncMock)
+    @patch("src.bot.handlers.menu.router._send_load_keyboard", new_callable=AsyncMock)
     async def test_load_shows_keyboard(self, mock_send_load, query, context):
         await _handle_models_action(query, context, "models:load")
         assert context.chat_data.get("pending_input") is None
         mock_send_load.assert_awaited_once_with(query.message, context)
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu._send_unload_keyboard", new_callable=AsyncMock)
+    @patch("src.bot.handlers.menu.router._send_unload_keyboard", new_callable=AsyncMock)
     async def test_unload_shows_keyboard(self, mock_send_unload, query, context):
         await _handle_models_action(query, context, "models:unload")
         assert context.chat_data.get("pending_input") is None
@@ -500,7 +500,7 @@ class TestModelsAction:
 
 class TestModelButtonCallbacks:
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.load_model", new_callable=AsyncMock)
+    @patch("src.lms.cli.load_model", new_callable=AsyncMock)
     async def test_load_model_callback(self, mock_load, update, query, context):
         update.callback_query = query
         query.data = "models:loadmodel:qwen/qwen3-4b"
@@ -513,7 +513,7 @@ class TestModelButtonCallbacks:
         mock_load.assert_awaited_once()
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.unload_model", new_callable=AsyncMock)
+    @patch("src.lms.cli.unload_model", new_callable=AsyncMock)
     async def test_unload_model_callback(self, mock_unload, update, query, context):
         update.callback_query = query
         query.data = "models:unloadmodel:my-model"
@@ -528,7 +528,7 @@ class TestModelButtonCallbacks:
 
 class TestExecuteModelsLoad:
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.load_model", new_callable=AsyncMock)
+    @patch("src.lms.cli.load_model", new_callable=AsyncMock)
     async def test_success(self, mock_load, update, context):
         mock_load.return_value = "OK"
         context.chat_data["pending_input"] = "models:load"
@@ -544,7 +544,7 @@ class TestExecuteModelsLoad:
         assert "cannot be empty" in update.effective_message.reply_text.call_args[0][0]
 
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.load_model", new_callable=AsyncMock)
+    @patch("src.lms.cli.load_model", new_callable=AsyncMock)
     async def test_cli_error(self, mock_load, update, context):
         mock_load.side_effect = LmsCliError("Not found")
         context.chat_data["pending_input"] = "models:load"
@@ -554,7 +554,7 @@ class TestExecuteModelsLoad:
 
 class TestExecuteModelsUnload:
     @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.cli.unload_model", new_callable=AsyncMock)
+    @patch("src.lms.cli.unload_model", new_callable=AsyncMock)
     async def test_success(self, mock_unload, update, context):
         mock_unload.return_value = "OK"
         context.chat_data["pending_input"] = "models:unload"

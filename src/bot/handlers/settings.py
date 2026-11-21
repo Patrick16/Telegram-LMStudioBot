@@ -17,11 +17,6 @@ VALID_SETTINGS = {
     "seed": {"type": int, "min": 0, "max": None},
 }
 
-# Settings that are stored under a different attribute name
-_ATTR_MAP = {
-    "stop_strings": "stop_strings",
-}
-
 
 async def _cmd_reply(message, text: str) -> None:
     """Send an ephemeral reply for command results."""

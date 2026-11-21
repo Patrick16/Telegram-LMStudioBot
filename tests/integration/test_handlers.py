@@ -582,7 +582,9 @@ def test_parity_matrix_completeness():
     """Verify every slash command has a corresponding button callback path."""
     from src.bot.handlers import menu
     # Check that the menu module has handlers for each callback prefix
-    source = open(menu.__file__).read()
+    import pathlib
+    package_dir = pathlib.Path(menu.__file__).parent
+    source = "".join(f.read_text(encoding="utf-8") for f in package_dir.glob("*.py"))
     for _cmd, cb in COMMAND_BUTTON_PARITY:
         # Strip dynamic segment for parametric buttons
         prefix = cb.split("<")[0].rstrip(":")
@@ -592,7 +594,7 @@ def test_parity_matrix_completeness():
 # --- T037: End-to-end workflow (SC-004) ---
 
 @pytest.mark.asyncio
-@patch("src.bot.handlers.menu.sdk.list_loaded_models", new_callable=AsyncMock)
+@patch("src.lms.sdk.list_loaded_models", new_callable=AsyncMock)
 async def test_e2e_menu_workflow(mock_loaded, update, context, store):
     """Open menu → loaded models → new chat → (pending input flow)."""
     # 1. Open menu

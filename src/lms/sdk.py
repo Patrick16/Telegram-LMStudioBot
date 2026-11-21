@@ -116,11 +116,7 @@ def _build_chat(
     history_messages: list[ChatMessage] | None = None,
 ) -> lmstudio.Chat:
     chat = lmstudio.Chat()
-    system_prompt = (
-        session.settings.system_prompt
-        if hasattr(session.settings, "system_prompt")
-        else getattr(session, "system_prompt", "")
-    )
+    system_prompt = session.settings.system_prompt
     if system_prompt:
         chat.add_system_prompt(system_prompt)
     msgs = history_messages if history_messages is not None else session.history

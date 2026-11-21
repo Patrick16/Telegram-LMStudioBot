@@ -41,15 +41,8 @@ class SessionGenerationSettings(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Legacy settings (kept for backward compat during migration)
+# Model load configuration (passed to `lms load`)
 # ---------------------------------------------------------------------------
-
-class ModelSettings(BaseModel):
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=-1, ge=-1)
-    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
-    stop: list[str] = Field(default_factory=list, max_length=4)
-
 
 class LoadConfig(BaseModel):
     gpu: str = "auto"

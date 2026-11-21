@@ -295,6 +295,7 @@ async def test_history_is_trimmed_to_model_context(store, context, message):
         yield "ok"
 
     # tiny 512-token window -> minimum budget (1500 chars) -> old turns dropped
-    with patch("src.lms.sdk.get_context_length", AsyncMock(return_value=512)),          patch("src.lms.sdk.chat_stream", fake):
+    window = AsyncMock(return_value=512)
+    with patch("src.lms.sdk.get_context_length", window), patch("src.lms.sdk.chat_stream", fake):
         await inference.run_text_turn(message, context, "new question")
     assert seen["msgs"] == ["new question"]
