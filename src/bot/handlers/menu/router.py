@@ -41,6 +41,7 @@ from src.bot.handlers.models import (
     perform_unload,
 )
 from src.bot.services import inference
+from src.storage.models import SessionGenerationSettings
 from src.bot.services.generation import get_generations
 from src.bot.services.status import build_status_text
 from src.lms import sdk
@@ -328,6 +329,12 @@ async def _handle_unload_model_callback(query, context, data: str) -> None:
 # Sessions actions handler
 # ---------------------------------------------------------------------------
 
+# "Reset" restores sampling parameters; the system prompt, history policy and the
+# reasoning toggle are deliberate choices and are kept.
+_RESETTABLE_SETTINGS = (
+    "temperature", "max_tokens", "top_p", "top_k", "repeat_penalty", "stop_strings", "seed",
+)
+
 _SESSIONS_PAGE_TITLES = {
     "switch": "🗂 Select a chat:",
     "remove_ask": "🗑 Select a chat to remove:",
@@ -494,7 +501,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
         try:
             await query.edit_message_text(
                 text="💬 Session Settings",
-                reply_markup=build_session_settings_menu(),
+                reply_markup=build_session_settings_menu(session.settings),
             )
         except BadRequest:
             pass
@@ -619,6 +626,25 @@ async def _handle_settings_action(query, context, data: str) -> None:
     }
     if data in model_setting_prompts:
         await request_input(query.message, context, data, model_setting_prompts[data])
+        return
+
+    # --- Session toggles / reset ---
+    if data in ("settings:session:toggle_reasoning", "settings:session:reset"):
+        if data.endswith("toggle_reasoning"):
+            session.settings.show_reasoning = not session.settings.show_reasoning
+        else:
+            defaults = SessionGenerationSettings()
+            for attr in _RESETTABLE_SETTINGS:
+                setattr(session.settings, attr, getattr(defaults, attr))
+            await reply_ephemeral(query.message, "✅ Generation settings reset to defaults.")
+        store.update_session(session)
+        try:
+            await query.edit_message_text(
+                text="💬 Session Settings",
+                reply_markup=build_session_settings_menu(session.settings),
+            )
+        except BadRequest:
+            pass
         return
 
     # --- Session-scoped setting prompts ---

@@ -16,14 +16,16 @@ def history_content(raw_text: str) -> str:
     return strip_think_tags(raw_text)
 
 
-async def send_response(placeholder_message, raw_text: str, reply_markup=None) -> None:
+async def send_response(
+    placeholder_message, raw_text: str, reply_markup=None, show_reasoning: bool = False
+) -> None:
     """Edit the placeholder with the first chunk; send overflow as follow-up messages.
 
     Chunks are sent as HTML. If Telegram rejects a chunk, that chunk is re-sent as
     plain text (tags removed, entities decoded) so the user never sees raw markup.
     *reply_markup* (e.g. a Regenerate button) is attached to the last chunk only.
     """
-    chunks = split_message(format_response(raw_text))
+    chunks = split_message(format_response(raw_text, show_reasoning))
     last = len(chunks) - 1
 
     def markup_for(index: int):

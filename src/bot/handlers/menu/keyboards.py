@@ -159,31 +159,61 @@ def build_model_settings_menu() -> InlineKeyboardMarkup:
     ])
 
 
-def build_session_settings_menu() -> InlineKeyboardMarkup:
-    """Session-scoped generation settings menu."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 System Prompt", callback_data="settings:session:prompt")],
+def _value_label(settings, attr: str) -> str:
+    """Short current-value text for a settings button."""
+    value = getattr(settings, attr)
+    if attr == "system_prompt":
+        return "set" if value else "empty"
+    if attr == "stop_strings":
+        return f"{len(value)} set" if value else "none"
+    if value is None:
+        return "default"
+    return str(value)
+
+
+def build_session_settings_menu(settings=None) -> InlineKeyboardMarkup:
+    """Session-scoped generation settings menu.
+
+    When *settings* is given, each button shows the current value (``🌡 Temperature · 0.7``).
+    """
+    def label(icon_name: str, attr: str) -> str:
+        if settings is None:
+            return icon_name
+        return f"{icon_name} · {_value_label(settings, attr)}"
+
+    rows = [
+        [InlineKeyboardButton(label("📝 System Prompt", "system_prompt"),
+                              callback_data="settings:session:prompt")],
         [
-            InlineKeyboardButton("🌡 Temperature", callback_data="settings:session:temperature"),
-            InlineKeyboardButton("🔢 Max Tokens", callback_data="settings:session:max_tokens"),
+            InlineKeyboardButton(label("🌡 Temperature", "temperature"),
+                                 callback_data="settings:session:temperature"),
+            InlineKeyboardButton(label("🔢 Max Tokens", "max_tokens"),
+                                 callback_data="settings:session:max_tokens"),
         ],
         [
-            InlineKeyboardButton("📊 Top-P", callback_data="settings:session:top_p"),
-            InlineKeyboardButton("🔝 Top-K", callback_data="settings:session:top_k"),
+            InlineKeyboardButton(label("📊 Top-P", "top_p"),
+                                 callback_data="settings:session:top_p"),
+            InlineKeyboardButton(label("🔝 Top-K", "top_k"),
+                                 callback_data="settings:session:top_k"),
         ],
         [
+            InlineKeyboardButton(label("🔁 Repeat Penalty", "repeat_penalty"),
+                                 callback_data="settings:session:repeat_penalty"),
+            InlineKeyboardButton(label("🛑 Stop Strings", "stop_strings"),
+                                 callback_data="settings:session:stop_strings"),
+        ],
+        [InlineKeyboardButton(label("🎲 Seed", "seed"), callback_data="settings:session:seed")],
+    ]
+    if settings is not None:
+        state = "on" if settings.show_reasoning else "off"
+        rows.append([
             InlineKeyboardButton(
-                "🔁 Repeat Penalty",
-                callback_data="settings:session:repeat_penalty",
+                f"💭 Show reasoning: {state}", callback_data="settings:session:toggle_reasoning"
             ),
-            InlineKeyboardButton(
-                "🛑 Stop Strings",
-                callback_data="settings:session:stop_strings",
-            ),
-        ],
-        [InlineKeyboardButton("🎲 Seed", callback_data="settings:session:seed")],
-        [InlineKeyboardButton("⬅ Back", callback_data="menu:settings")],
-    ])
+            InlineKeyboardButton("↺ Reset", callback_data="settings:session:reset"),
+        ])
+    rows.append([InlineKeyboardButton("⬅ Back", callback_data="menu:settings")])
+    return InlineKeyboardMarkup(rows)
 
 
 def build_history_policy_menu() -> InlineKeyboardMarkup:
@@ -282,6 +312,7 @@ def render_current_settings(session, model_info: str | None = None) -> str:
     )
     lines.append(f"  Stop Strings: {_code(s.stop_strings or '(none)')}")
     lines.append(f"  Seed: {_code(s.seed if s.seed is not None else '(random)')}")
+    lines.append(f"  Show reasoning: {_code('on' if s.show_reasoning else 'off')}")
     lines.append(f"  History Policy: {_code(s.history_policy.mode)}")
     if s.history_policy.mode == "last_n_pairs" and s.history_policy.message_pair_limit is not None:
         lines.append(f"    Pair Limit: {_code(s.history_policy.message_pair_limit)}")

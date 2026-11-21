@@ -38,6 +38,7 @@ class SessionGenerationSettings(BaseModel):
     stop_strings: list[str] = Field(default_factory=list, max_length=4)
     seed: int | None = None
     history_policy: HistoryReusePolicy = Field(default_factory=HistoryReusePolicy)
+    show_reasoning: bool = False  # show <think> blocks as a collapsed quote under the answer
 
 
 # ---------------------------------------------------------------------------

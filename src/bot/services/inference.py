@@ -167,7 +167,10 @@ async def _generate(
             return
 
         try:
-            await send_response(placeholder, text, reply_markup=reply_keyboard())
+            await send_response(
+                placeholder, text, reply_markup=reply_keyboard(),
+                show_reasoning=session.settings.show_reasoning,
+            )
         except Exception as exc:
             logger.error("Could not deliver reply: %s", exc)
             await _safe_edit(placeholder, describe_error(exc))

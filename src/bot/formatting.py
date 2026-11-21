@@ -18,6 +18,16 @@ _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 _SAFE_LINK_SCHEMES = ("http://", "https://", "tg://", "mailto:")
 
 
+def extract_reasoning(text: str) -> str:
+    """Return the text of all ``<think>`` blocks (including an unclosed trailing one)."""
+    parts = [m.strip() for m in re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)]
+    rest = _THINK_BLOCK_RE.sub("", text)
+    unclosed = re.search(r"<think>(.*)$", rest, flags=re.DOTALL)
+    if unclosed:
+        parts.append(unclosed.group(1).strip())
+    return "\n\n".join(p for p in parts if p)
+
+
 def strip_think_tags(text: str) -> str:
     """Remove reasoning blocks from model output."""
     text = _THINK_BLOCK_RE.sub("", text)
@@ -83,11 +93,20 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def format_response(text: str) -> str:
-    """Convert raw model output into Telegram-safe HTML."""
+def format_response(text: str, show_reasoning: bool = False) -> str:
+    """Convert raw model output into Telegram-safe HTML.
+
+    With *show_reasoning*, the model's ``<think>`` content is prepended as an
+    expandable (collapsed) quote.
+    """
     cleaned = strip_think_tags(text)
     if not cleaned:
         return "<i>(no response)</i>"
+    if show_reasoning:
+        reasoning = extract_reasoning(text)
+        if reasoning:
+            quote = f"<blockquote expandable>💭 {html.escape(reasoning, quote=False)}</blockquote>\n"
+            return quote + format_response(cleaned)
 
     parts: list[str] = []
     last_index = 0

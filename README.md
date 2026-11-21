@@ -6,7 +6,10 @@ A Telegram bot for local LLM chat using [LM Studio](https://lmstudio.ai) as the 
 - 💬 Multi-session chat with per-session history
 - ⚙️ Inline menu for model & session settings
 - 📦 Model and session preset support
-- 🔄 Regenerate, switch, and remove chats
+- 🔄 Live-streamed replies with ⏹ Stop and 🔄 Regenerate buttons
+- 🗂 Switch, rename and remove chats (paginated lists, delete confirmation)
+- 💭 Optional collapsible model reasoning (`<think>`)
+- 📊 `/status` — LM Studio, loaded models, chat and context window
 - 🗑️ Ephemeral command replies (auto-delete)
 - 🖼️ Vision (image input) support
 - 🛠️ Easy setup: Windows (`launch.bat`), Linux/macOS (`launch.sh`)
