@@ -33,6 +33,7 @@ from src.bot.handlers.models import (
     perform_unload,
 )
 from src.bot.services import inference
+from src.bot.services.generation import get_generations
 from src.lms import sdk
 from src.lms.cli import LmsCliError
 
@@ -123,6 +124,16 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if data in ("menu:main", "menu:models", "menu:sessions",
                 "menu:settings", "menu:help"):
         await _show_section(query, context, data)
+        return
+
+    # Buttons under a reply / the "thinking" placeholder
+    if data == inference.CB_STOP:
+        if not get_generations(context).stop(query.message.chat_id):
+            await reply_ephemeral(query.message, "Nothing is being generated right now.")
+        return
+
+    if data == inference.CB_REGENERATE:
+        await _execute_inference_regenerate(query, context)
         return
 
     # Top-level regenerate

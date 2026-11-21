@@ -49,6 +49,24 @@ def _markdown_to_html(text: str) -> str:
     return text
 
 
+_PREVIEW_LIMIT = 3900
+_CURSOR = " ▌"
+
+
+def format_stream_preview(raw_text: str) -> str:
+    """Plain-text preview of a reply that is still being generated.
+
+    Reasoning blocks are hidden; while the model is only "thinking" a short hint is shown.
+    Long replies show their tail so the newest text stays visible.
+    """
+    visible = strip_think_tags(raw_text)
+    if not visible:
+        return "💭 Thinking…" if "<think>" in raw_text else "⏳ Thinking..."
+    if len(visible) > _PREVIEW_LIMIT:
+        visible = "…" + visible[-_PREVIEW_LIMIT:]
+    return visible + _CURSOR
+
+
 def html_to_plain(text: str) -> str:
     """Strip Telegram HTML tags and decode entities, yielding readable plain text."""
     return html.unescape(re.sub(r"<[^>]+>", "", text))

@@ -10,10 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
+from datetime import timedelta
 
 import lmstudio
-from telegram.error import TelegramError
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import RetryAfter, TelegramError
 
+from src.bot.formatting import format_stream_preview
 from src.bot.responses import history_content, send_response
 from src.bot.services.generation import get_generations
 from src.lms import sdk
@@ -26,6 +30,25 @@ MSG_NOTHING_TO_REGENERATE = "❌ Nothing to regenerate (no messages in this chat
 MSG_BUSY = "⏳ A reply is already being generated. Send /stop to cancel it."
 MSG_NO_RESPONSE = "❌ No response from model."
 MSG_STOPPED = "⏹ Stopped."
+CB_STOP = "gen:stop"
+CB_REGENERATE = "gen:regen"
+
+STREAM_EDIT_INTERVAL = 1.5  # seconds between live edits (Telegram rate limits apply)
+TYPING_INTERVAL = 4.0       # a chat action lasts ~5s
+
+
+def generating_keyboard() -> InlineKeyboardMarkup:
+    """Shown under the placeholder while a reply is being generated."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⏹ Stop", callback_data=CB_STOP)]])
+
+
+def reply_keyboard() -> InlineKeyboardMarkup:
+    """Shown under a finished reply."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔄 Regenerate", callback_data=CB_REGENERATE)]]
+    )
+
+
 MSG_INTERRUPTED = (
     "⚠️ The connection to LM Studio dropped — the reply above is incomplete."
 )
@@ -52,6 +75,16 @@ async def _safe_edit(message, text: str) -> None:
         logger.warning("Could not edit status message: %s", exc)
 
 
+async def _keep_typing(message) -> None:
+    """Show the "typing…" chat action until cancelled."""
+    while True:
+        try:
+            await message.chat.send_action("typing")
+        except TelegramError:
+            pass
+        await asyncio.sleep(TYPING_INTERVAL)
+
+
 async def _generate(
     message,
     context,
@@ -61,22 +94,44 @@ async def _generate(
     status: str,
     persist,
 ) -> None:
-    """Stream *stream*, deliver the reply and call ``persist(text)`` on success."""
+    """Stream *stream* live, deliver the final reply and call ``persist(text)`` on success."""
     generations = get_generations(context)
     chat_id = message.chat_id
     if generations.is_active(chat_id):
         await message.reply_text(MSG_BUSY)
         return
 
-    placeholder = await message.reply_text(status)
+    placeholder = await message.reply_text(status, reply_markup=generating_keyboard())
     text = ""
     interrupted = False
+    last_edit = time.monotonic()
+    shown = status
+    interval = STREAM_EDIT_INTERVAL
 
     async with generations.track(chat_id):
+        typing = asyncio.create_task(_keep_typing(message))
         try:
             try:
                 async for chunk in stream:
                     text += chunk
+                    now = time.monotonic()
+                    if now - last_edit < interval:
+                        continue
+                    preview = format_stream_preview(text)
+                    if preview == shown:
+                        continue
+                    last_edit = now
+                    try:
+                        await placeholder.edit_text(
+                            preview, reply_markup=generating_keyboard()
+                        )
+                        shown = preview
+                    except RetryAfter as exc:
+                        wait = exc.retry_after
+                        seconds = wait.total_seconds() if isinstance(wait, timedelta) else wait
+                        interval = max(interval, float(seconds) + 1)
+                    except TelegramError as exc:  # not modified, message gone, ...
+                        logger.debug("Live edit skipped: %s", exc)
             except sdk.StreamInterrupted:
                 interrupted = True
         except asyncio.CancelledError:
@@ -86,6 +141,8 @@ async def _generate(
             logger.error("Inference error: %s", exc)
             await _safe_edit(placeholder, describe_error(exc))
             return
+        finally:
+            typing.cancel()
 
         stored = history_content(text)
         if not stored:
@@ -93,7 +150,7 @@ async def _generate(
             return
 
         try:
-            await send_response(placeholder, text)
+            await send_response(placeholder, text, reply_markup=reply_keyboard())
         except Exception as exc:
             logger.error("Could not deliver reply: %s", exc)
             await _safe_edit(placeholder, describe_error(exc))
