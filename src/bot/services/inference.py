@@ -107,6 +107,20 @@ async def _generate(
                 pass
 
 
+async def _context_budget(session, context) -> int | None:
+    """Character budget for history, or None if the model's context size is unknown."""
+    config = context.bot_data["config"]
+    try:
+        length = await sdk.get_context_length(
+            session.model_identifier, host=config.LMS_HOST, port=config.LMS_PORT
+        )
+    except Exception as exc:  # LM Studio down / no model: the turn itself will report it
+        logger.debug("Could not read context length: %s", exc)
+        return None
+    settings = session.settings
+    return sdk.compute_context_budget(length, settings.max_tokens, settings.system_prompt)
+
+
 def _stream_args(context):
     config = context.bot_data["config"]
     return {"host": config.LMS_HOST, "port": config.LMS_PORT}
@@ -122,7 +136,9 @@ async def run_text_turn(message, context, user_text: str) -> None:
     user_msg = ChatMessage(role="user", content=user_text)
     # The prompt includes the new user message, but it is only persisted with the reply.
     context_msgs = sdk.trim_history(
-        store.load_history(session.id) + [user_msg], session.settings.history_policy
+        store.load_history(session.id) + [user_msg],
+        session.settings.history_policy,
+        await _context_budget(session, context),
     )
     stream = sdk.chat_stream(session, history_messages=context_msgs, **_stream_args(context))
 
@@ -146,7 +162,9 @@ async def run_image_turn(message, context, image_path: str, caption: str) -> Non
     user_msg = ChatMessage(role="user", content=f"[image] {user_content}")
     # The SDK appends the current (image) message itself, so context excludes it.
     context_msgs = sdk.trim_history(
-        store.load_history(session.id), session.settings.history_policy
+        store.load_history(session.id),
+        session.settings.history_policy,
+        await _context_budget(session, context),
     )
     stream = sdk.infer_with_image(
         session, image_path, caption=caption, history_messages=context_msgs,
@@ -177,7 +195,9 @@ async def run_regenerate(message, context) -> None:
         await message.reply_text(MSG_NOTHING_TO_REGENERATE)
         return
 
-    context_msgs = sdk.trim_history(history, session.settings.history_policy)
+    context_msgs = sdk.trim_history(
+        history, session.settings.history_policy, await _context_budget(session, context)
+    )
     stream = sdk.chat_stream(session, history_messages=context_msgs, **_stream_args(context))
 
     def persist(reply: str) -> None:

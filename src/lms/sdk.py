@@ -64,6 +64,11 @@ def trim_history(
                 break
             result.append(msg)
         result.reverse()
+        # Never start with an orphaned assistant reply, and always keep the latest message.
+        while result and result[0].role == "assistant":
+            result.pop(0)
+        if not result and messages:
+            result = [messages[-1]]
         return result
 
     # full_if_possible
@@ -78,6 +83,28 @@ def trim_history(
         HistoryReusePolicy(mode="fit_budget_recent"),
         context_budget,
     )
+
+
+# ---------------------------------------------------------------------------
+# Context budget
+# ---------------------------------------------------------------------------
+
+_CHARS_PER_TOKEN = 3  # conservative: ~4 for English, ~2 for Cyrillic
+_MIN_BUDGET_CHARS = 1500
+
+
+def compute_context_budget(
+    context_length: int, max_tokens: int = -1, system_prompt: str = ""
+) -> int:
+    """Rough character budget for chat history given the model's context window.
+
+    Reserves room for the reply (``max_tokens``, or a quarter of the window when
+    unlimited) and for the system prompt.
+    """
+    reply_reserve = max_tokens if max_tokens > 0 else context_length // 4
+    prompt_reserve = len(system_prompt) // _CHARS_PER_TOKEN
+    available_tokens = context_length - reply_reserve - prompt_reserve
+    return max(available_tokens * _CHARS_PER_TOKEN, _MIN_BUDGET_CHARS)
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +330,21 @@ async def list_loaded_models(
                 return list(client.list_loaded_models())
             finally:
                 client.close()
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_context_length(
+    identifier: str | None = None, host: str = "localhost", port: int = 1234
+) -> int:
+    """Return the context window (tokens) the model is currently loaded with."""
+
+    def _sync() -> int:
+        client = lmstudio.Client(api_host=f"{host}:{port}")
+        try:
+            return int(client.llm.model(identifier).get_context_length())
+        finally:
+            client.close()
 
     return await asyncio.to_thread(_sync)
 

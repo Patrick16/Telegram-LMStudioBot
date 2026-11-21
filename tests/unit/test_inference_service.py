@@ -274,3 +274,27 @@ async def test_photo_errors_are_specific_and_temp_file_removed(store, context):
          patch("src.bot.handlers.vision.inference.run_image_turn", AsyncMock()):
         await photo_message_handler(update, context)
     assert paths and not os.path.exists(paths[0])
+
+
+# --- context budget -----------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_history_is_trimmed_to_model_context(store, context, message):
+    session = store.create_session("S")
+    store.append_messages(
+        session.id,
+        [
+            ChatMessage(role="user", content="old" * 2000),
+            ChatMessage(role="assistant", content="older" * 2000),
+        ],
+    )
+    seen = {}
+
+    async def fake(session, host="", port=0, history_messages=None):
+        seen["msgs"] = [m.content for m in history_messages]
+        yield "ok"
+
+    # tiny 512-token window -> minimum budget (1500 chars) -> old turns dropped
+    with patch("src.lms.sdk.get_context_length", AsyncMock(return_value=512)),          patch("src.lms.sdk.chat_stream", fake):
+        await inference.run_text_turn(message, context, "new question")
+    assert seen["msgs"] == ["new question"]

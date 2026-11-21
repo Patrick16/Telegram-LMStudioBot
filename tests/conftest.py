@@ -36,3 +36,11 @@ def mock_update():
     u.effective_message.reply_text = AsyncMock()
     u.effective_message.text = "test"
     return u
+
+
+@pytest.fixture(autouse=True)
+def _no_real_lm_studio(monkeypatch):
+    """Never reach a real LM Studio from tests; context size is 'unknown' by default."""
+    monkeypatch.setattr(
+        "src.lms.sdk.get_context_length", AsyncMock(side_effect=ConnectionError("offline"))
+    )

@@ -65,7 +65,8 @@ class TestTrimHistory:
             ChatMessage(role="user", content="c" * 50),
         ]
         result = trim_history(msgs, policy, context_budget=160)
-        assert len(result) == 2  # last two fit in 150 chars
+        # the last two fit in 150 chars, but a leading assistant reply is orphaned -> dropped
+        assert [m.role for m in result] == ["user"]
 
     def test_fit_budget_no_budget_returns_all(self):
         policy = HistoryReusePolicy(mode="fit_budget_recent")
@@ -87,7 +88,32 @@ class TestTrimHistory:
             ChatMessage(role="user", content="c" * 50),
         ]
         result = trim_history(msgs, policy, context_budget=160)
-        assert len(result) == 2
+        assert [m.role for m in result] == ["user"]
+
+    def test_latest_message_kept_even_if_over_budget(self):
+        policy = HistoryReusePolicy(mode="fit_budget_recent")
+        msgs = [ChatMessage(role="user", content="x" * 500)]
+        assert trim_history(msgs, policy, context_budget=100) == msgs
+
+
+class TestComputeContextBudget:
+    def test_reserves_reply_space(self):
+        from src.lms.sdk import compute_context_budget
+
+        # 4096 window, unlimited reply -> 1/4 reserved -> 3072 tokens * 3 chars
+        assert compute_context_budget(4096) == 3072 * 3
+
+    def test_respects_max_tokens_and_system_prompt(self):
+        from src.lms.sdk import compute_context_budget
+
+        assert compute_context_budget(4096, max_tokens=1000, system_prompt="s" * 300) == (
+            (4096 - 1000 - 100) * 3
+        )
+
+    def test_never_below_minimum(self):
+        from src.lms.sdk import compute_context_budget
+
+        assert compute_context_budget(512, max_tokens=500) >= 1500
 
 
 # ---------------------------------------------------------------------------
