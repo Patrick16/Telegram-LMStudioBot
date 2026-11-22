@@ -17,6 +17,7 @@ import lmstudio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import RetryAfter, TelegramError
 
+from src.bot.i18n import mark, tr
 from src.bot.formatting import format_stream_preview
 from src.bot.responses import history_content, send_response
 from src.bot.services.generation import get_generations
@@ -25,11 +26,11 @@ from src.storage.models import ChatMessage
 
 logger = logging.getLogger(__name__)
 
-MSG_NO_CHAT = "❌ No active chat. Use /newchat first."
-MSG_NOTHING_TO_REGENERATE = "❌ Nothing to regenerate (no messages in this chat)."
-MSG_BUSY = "⏳ A reply is already being generated. Send /stop to cancel it."
-MSG_NO_RESPONSE = "❌ No response from model."
-MSG_STOPPED = "⏹ Stopped."
+MSG_NO_CHAT = mark("❌ No active chat. Use /newchat first.")
+MSG_NOTHING_TO_REGENERATE = mark("❌ Nothing to regenerate (no messages in this chat).")
+MSG_BUSY = mark("⏳ A reply is already being generated. Send /stop to cancel it.")
+MSG_NO_RESPONSE = mark("❌ No response from model.")
+MSG_STOPPED = mark("⏹ Stopped.")
 CB_STOP = "gen:stop"
 CB_REGENERATE = "gen:regen"
 CB_RETRY = "gen:retry"
@@ -44,34 +45,45 @@ TYPING_INTERVAL = 4.0       # a chat action lasts ~5s
 
 def generating_keyboard() -> InlineKeyboardMarkup:
     """Shown under the placeholder while a reply is being generated."""
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⏹ Stop", callback_data=CB_STOP)]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(tr("⏹ Stop"), callback_data=CB_STOP)]])
 
 
 def reply_keyboard() -> InlineKeyboardMarkup:
     """Shown under a finished reply."""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔄 Regenerate", callback_data=CB_REGENERATE),
-            InlineKeyboardButton("▶ Continue", callback_data=CB_CONTINUE),
+            InlineKeyboardButton(tr("🔄 Regenerate"), callback_data=CB_REGENERATE),
+            InlineKeyboardButton(tr("▶ Continue"), callback_data=CB_CONTINUE),
         ],
         [
-            InlineKeyboardButton("➕ New chat", callback_data=CB_NEW_CHAT),
-            InlineKeyboardButton("📋 Menu", callback_data=CB_MENU),
+            InlineKeyboardButton(tr("➕ New chat"), callback_data=CB_NEW_CHAT),
+            InlineKeyboardButton(tr("📋 Menu"), callback_data=CB_MENU),
         ],
     ])
 
 
+_UNREACHABLE_ERRORS = (
+    lmstudio.LMStudioWebsocketError, lmstudio.LMStudioTimeoutError, ConnectionError, OSError,
+)
+
+
+def _is_unreachable(exc: BaseException | None) -> bool:
+    return isinstance(exc, _UNREACHABLE_ERRORS)
+
+
 def error_keyboard(exc: BaseException | None, retry_callback: str | None):
-    """Action buttons for a failed turn: load a model and/or retry."""
+    """Action buttons for a failed turn: load a model, retry, check LM Studio's status."""
     rows = []
     if isinstance(exc, lmstudio.LMStudioModelNotFoundError):
-        rows.append([InlineKeyboardButton("📦 Load a model", callback_data="models:load")])
+        rows.append([InlineKeyboardButton(tr("📦 Load a model"), callback_data="models:load")])
     if retry_callback:
-        rows.append([InlineKeyboardButton("🔁 Retry", callback_data=retry_callback)])
+        rows.append([InlineKeyboardButton(tr("🔁 Retry"), callback_data=retry_callback)])
+    if _is_unreachable(exc):
+        rows.append([InlineKeyboardButton(tr("📊 Status"), callback_data="menu:status")])
     return InlineKeyboardMarkup(rows) if rows else None
 
 
-MSG_INTERRUPTED = (
+MSG_INTERRUPTED = mark(
     "⚠️ The connection to LM Studio dropped — the reply above is incomplete."
 )
 
@@ -79,15 +91,12 @@ MSG_INTERRUPTED = (
 def describe_error(exc: BaseException) -> str:
     """Turn an exception into a short, accurate message for the user."""
     if isinstance(exc, lmstudio.LMStudioModelNotFoundError):
-        return "❌ No model is loaded. Load one from the menu or with /load."
-    if isinstance(
-        exc,
-        (lmstudio.LMStudioWebsocketError, lmstudio.LMStudioTimeoutError, ConnectionError, OSError),
-    ):
-        return "❌ LM Studio is unreachable. Is it running?"
+        return tr("❌ No model is loaded. Load one from the menu or with /load.")
+    if _is_unreachable(exc):
+        return tr("❌ LM Studio is unreachable. Is it running?")
     if isinstance(exc, TelegramError):
-        return f"❌ Telegram error: {exc}"
-    return f"❌ Generation failed: {exc or type(exc).__name__}"
+        return tr("❌ Telegram error: {error}", error=exc)
+    return tr("❌ Generation failed: {error}", error=exc or type(exc).__name__)
 
 
 async def _safe_edit(message, text: str, reply_markup=None) -> None:
@@ -122,7 +131,7 @@ async def _generate(
     generations = get_generations(context)
     chat_id = message.chat_id
     if generations.is_active(chat_id):
-        await message.reply_text(MSG_BUSY)
+        await message.reply_text(tr(MSG_BUSY))
         return
 
     placeholder = await message.reply_text(status, reply_markup=generating_keyboard())
@@ -159,7 +168,7 @@ async def _generate(
             except sdk.StreamInterrupted:
                 interrupted = True
         except asyncio.CancelledError:
-            await _safe_edit(placeholder, MSG_STOPPED)
+            await _safe_edit(placeholder, tr(MSG_STOPPED))
             return
         except Exception as exc:
             logger.error("Inference error: %s", exc)
@@ -174,7 +183,9 @@ async def _generate(
 
         stored = history_content(text)
         if not stored:
-            await _safe_edit(placeholder, MSG_NO_RESPONSE, error_keyboard(None, retry_callback))
+            await _safe_edit(
+                placeholder, tr(MSG_NO_RESPONSE), error_keyboard(None, retry_callback)
+            )
             return
 
         try:
@@ -190,7 +201,7 @@ async def _generate(
         persist(stored)
         if interrupted:
             try:
-                await message.reply_text(MSG_INTERRUPTED)
+                await message.reply_text(tr(MSG_INTERRUPTED))
             except TelegramError:
                 pass
 
@@ -213,7 +224,7 @@ def ensure_session(store):
     """Return the active chat, creating "Chat N" on first use so users can just type."""
     session = store.get_active_session()
     if session is None:
-        session = store.create_session(f"Chat {len(store.list_sessions()) + 1}")
+        session = store.create_session(tr("Chat {n}", n=len(store.list_sessions()) + 1))
     return session
 
 
@@ -241,7 +252,7 @@ async def run_text_turn(message, context, user_text: str) -> None:
         )
 
     await _generate(
-        message, context, session, stream, status="⏳ Thinking...", persist=persist,
+        message, context, session, stream, status=tr("⏳ Thinking..."), persist=persist,
         retry_callback=CB_RETRY, retry_text=user_text,
     )
 
@@ -270,7 +281,7 @@ async def run_image_turn(message, context, image_path: str, caption: str) -> Non
         )
 
     await _generate(
-        message, context, session, stream, status="⏳ Processing image...", persist=persist
+        message, context, session, stream, status=tr("⏳ Processing image..."), persist=persist
     )
 
 
@@ -278,7 +289,7 @@ async def run_retry(message, context) -> None:
     """Re-send the text of the last failed turn."""
     text = context.chat_data.pop("retry_text", None)
     if not text:
-        await message.reply_text("Nothing to retry.")
+        await message.reply_text(tr("Nothing to retry."))
         return
     await run_text_turn(message, context, text)
 
@@ -287,14 +298,14 @@ async def run_regenerate(message, context) -> None:
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
-        await message.reply_text(MSG_NO_CHAT)
+        await message.reply_text(tr(MSG_NO_CHAT))
         return
 
     history = store.load_history(session.id)
     if history and history[-1].role == "assistant":
         history = history[:-1]  # the old answer stays in storage until the new one succeeds
     if not history or history[-1].role != "user":
-        await message.reply_text(MSG_NOTHING_TO_REGENERATE)
+        await message.reply_text(tr(MSG_NOTHING_TO_REGENERATE))
         return
 
     context_msgs = sdk.trim_history(
@@ -306,7 +317,7 @@ async def run_regenerate(message, context) -> None:
         store.replace_last_assistant(session.id, ChatMessage(role="assistant", content=reply))
 
     await _generate(
-        message, context, session, stream, status="⏳ Regenerating...", persist=persist,
+        message, context, session, stream, status=tr("⏳ Regenerating..."), persist=persist,
         retry_callback=CB_REGENERATE,
     )
 

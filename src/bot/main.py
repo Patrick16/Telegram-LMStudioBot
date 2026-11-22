@@ -5,9 +5,10 @@ import tempfile
 
 from dotenv import load_dotenv
 from filelock import FileLock, Timeout
-from telegram import BotCommand
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
+from src.bot import i18n
+from src.bot.commands import bot_commands
 from src.bot.config import BotConfig
 from src.bot.handlers.chats import (
     chats_command,
@@ -62,18 +63,54 @@ def _release_lock() -> None:
 
 
 async def post_init(app: Application) -> None:
-    await app.bot.set_my_commands([
-        BotCommand("menu", "Open the interactive menu"),
-        BotCommand("status", "LM Studio and chat status"),
-        BotCommand("stop", "Stop the current reply"),
-        BotCommand("regenerate", "Regenerate the last reply"),
-        BotCommand("newchat", "Start a new chat"),
-        BotCommand("help", "Show all commands"),
-    ])
+    # Default list in English plus a Russian one for clients set to Russian.
+    await app.bot.set_my_commands(bot_commands("en"))
+    await app.bot.set_my_commands(bot_commands("ru"), language_code="ru")
 
 
 async def error_handler(update, context) -> None:
     logger.error("Unhandled exception: %s", context.error, exc_info=context.error)
+
+
+def register_handlers(app: Application) -> None:
+    """Attach every command, callback and message handler to *app*."""
+    # Help
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("menu", menu_command_handler))
+    app.add_handler(CommandHandler("status", status_command))
+
+    # Inline menu callback handler
+    # block=False: long actions (model load, regenerate) must not freeze other updates.
+    app.add_handler(CallbackQueryHandler(menu_callback_handler, block=False))
+
+    # Model management
+    app.add_handler(CommandHandler("models", models_command))
+    app.add_handler(CommandHandler("loaded", loaded_command))
+    app.add_handler(CommandHandler("load", load_command, block=False))
+    app.add_handler(CommandHandler("unload", unload_command, block=False))
+
+    # Chat sessions
+    app.add_handler(CommandHandler("newchat", newchat_command))
+    app.add_handler(CommandHandler("chats", chats_command))
+    app.add_handler(CommandHandler("switchchat", switchchat_command))
+    app.add_handler(CommandHandler("removechat", removechat_command))
+    app.add_handler(CommandHandler("renamechat", renamechat_command))
+
+    # Settings
+    app.add_handler(CommandHandler("setprompt", setprompt_command))
+    app.add_handler(CommandHandler("set", set_command))
+
+    # Inference
+    # Generation runs in its own task so /stop and the menu stay responsive.
+    app.add_handler(CommandHandler("stop", stop_command))
+    app.add_handler(CommandHandler("regenerate", regenerate_command, block=False))
+    # Bottom-keyboard shortcuts must win over the generic text handler.
+    app.add_handler(quickbar_message_handler())
+    app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler, block=False))
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler, block=False)
+    )
 
 
 def main() -> None:
@@ -97,6 +134,7 @@ def main() -> None:
             session_presets_file=config.SESSION_PRESETS_FILE,
         )
         store.load()
+        i18n.set_language(store.get_language())
 
         # Ensure preset/history directories exist
         os.makedirs(config.HISTORIES_DIR, exist_ok=True)
@@ -107,43 +145,7 @@ def main() -> None:
         app.bot_data["config"] = config
         app.bot_data["store"] = store
 
-        # Help
-        app.add_handler(CommandHandler("start", start_command))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("menu", menu_command_handler))
-        app.add_handler(CommandHandler("status", status_command))
-
-        # Inline menu callback handler
-        # block=False: long actions (model load, regenerate) must not freeze other updates.
-        app.add_handler(CallbackQueryHandler(menu_callback_handler, block=False))
-
-        # Model management
-        app.add_handler(CommandHandler("models", models_command))
-        app.add_handler(CommandHandler("loaded", loaded_command))
-        app.add_handler(CommandHandler("load", load_command, block=False))
-        app.add_handler(CommandHandler("unload", unload_command, block=False))
-
-        # Chat sessions
-        app.add_handler(CommandHandler("newchat", newchat_command))
-        app.add_handler(CommandHandler("chats", chats_command))
-        app.add_handler(CommandHandler("switchchat", switchchat_command))
-        app.add_handler(CommandHandler("removechat", removechat_command))
-        app.add_handler(CommandHandler("renamechat", renamechat_command))
-
-        # Settings
-        app.add_handler(CommandHandler("setprompt", setprompt_command))
-        app.add_handler(CommandHandler("set", set_command))
-
-        # Inference
-        # Generation runs in its own task so /stop and the menu stay responsive.
-        app.add_handler(CommandHandler("stop", stop_command))
-        app.add_handler(CommandHandler("regenerate", regenerate_command, block=False))
-        # Bottom-keyboard shortcuts must win over the generic text handler.
-        app.add_handler(quickbar_message_handler())
-        app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler, block=False))
-        app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler, block=False)
-        )
+        register_handlers(app)
 
         # Error handler
         app.add_error_handler(error_handler)

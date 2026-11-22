@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.ephemeral import reply_ephemeral
+from src.bot.i18n import tr
 from src.bot.handlers.menu import handle_pending_input
 from src.bot.handlers.menu.pending import expire_pending_if_stale
 from src.bot.services import inference
@@ -18,7 +19,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if expire_pending_if_stale(context):
         await reply_ephemeral(
             update.effective_message,
-            "⌛ The earlier input request expired, so this was sent to the model.",
+            tr("⌛ The earlier input request expired, so this was sent to the model."),
         )
 
     # Intercept pending input from menu buttons
@@ -41,4 +42,4 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if get_generations(context).stop(message.chat_id):
         logger.info("Generation stopped by user")
     else:
-        await message.reply_text("Nothing is being generated right now.")
+        await message.reply_text(tr("Nothing is being generated right now."))

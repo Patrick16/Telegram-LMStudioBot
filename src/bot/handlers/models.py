@@ -6,8 +6,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from src.bot.i18n import tr
 from src.bot.auth import require_owner
-from src.bot.ephemeral import schedule_delete
+from src.bot.ephemeral import reply_error, schedule_delete
 from src.bot.formatting import _format_size
 from src.bot.pagination import nav_row, paginate
 from src.lms import cli, sdk
@@ -17,6 +18,15 @@ from src.storage.models import LoadConfig
 logger = logging.getLogger(__name__)
 
 _CMD_MSG_KEY = "cmd_msg"
+
+
+def _UNREACHABLE_TEXT() -> str:
+    return tr("❌ Could not connect to LM Studio. Is it running?")
+
+
+def _UNREACHABLE_ACTIONS() -> tuple[tuple[str, str], ...]:
+    """Buttons offered when LM Studio cannot be reached."""
+    return ((tr("🔄 Retry"), "menu:models"), (tr("📊 Status"), "menu:status"))
 
 
 async def cmd_reply(
@@ -98,7 +108,7 @@ async def perform_unload(context: ContextTypes.DEFAULT_TYPE, identifier: str) ->
 
 def _format_downloaded_list(models) -> str:
     if not models:
-        return "No models found."
+        return tr("No models found.")
 
     lines = []
     for model in models:
@@ -107,12 +117,12 @@ def _format_downloaded_list(models) -> str:
         size_bytes = getattr(info, "size_bytes", 0) or 0
         lines.append(f"• {html.escape(str(model_key))}  {_format_size(int(size_bytes))}")
 
-    return "📦 Available models:\n" + "\n".join(lines)
+    return tr("📦 Available models:") + "\n" + "\n".join(lines)
 
 
 def _format_loaded_list(handles) -> str:
     if not handles:
-        return "No models are currently loaded."
+        return tr("No models are currently loaded.")
 
     lines = []
     for handle in handles:
@@ -122,7 +132,7 @@ def _format_loaded_list(handles) -> str:
         size_bytes = getattr(handle, "size_bytes", 0) or 0
         lines.append(f"• {html.escape(str(identifier))}  {_format_size(int(size_bytes))}")
 
-    return "🧠 Loaded models:\n" + "\n".join(lines)
+    return tr("🧠 Loaded models:") + "\n" + "\n".join(lines)
 
 
 _MAX_BUTTONS = 100
@@ -147,7 +157,9 @@ def _truncate_callback_data(prefix: str, value: str) -> str:
 def _build_limit_note(total: int) -> str:
     if total <= _MAX_BUTTONS:
         return ""
-    return f"\n(showing 100 of {total}; {total - 100} model(s) not shown)"
+    return "\n" + tr(
+        "(showing 100 of {total}; {hidden} model(s) not shown)", total=total, hidden=total - 100
+    )
 
 
 def _build_load_keyboard(models, loaded_keys: set[str], page: int = 0) -> InlineKeyboardMarkup:
@@ -169,8 +181,9 @@ def _build_load_keyboard(models, loaded_keys: set[str], page: int = 0) -> Inline
 
 def _load_prompt(total: int, page: int) -> str:
     _, page, pages = paginate(range(total), page)
-    suffix = f" (page {page + 1}/{pages})" if pages > 1 else ""
-    return f"Select a model to load{suffix}:"
+    if pages > 1:
+        return tr("Select a model to load (page {page}/{pages}):", page=page + 1, pages=pages)
+    return tr("Select a model to load:")
 
 
 def _build_unload_keyboard(handles) -> InlineKeyboardMarkup:
@@ -203,11 +216,11 @@ async def _send_load_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> Non
             sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT),
         )
     except Exception:
-        await cmd_reply(message, context, "❌ Could not connect to LM Studio. Is it running?")
+        await reply_error(message, _UNREACHABLE_TEXT(), _UNREACHABLE_ACTIONS())
         return
 
     if not models:
-        await cmd_reply(message, context, "No models available to load.")
+        await cmd_reply(message, context, tr("No models available to load."))
         return
 
     # Extract model keys without calling .get_info() to avoid triggering
@@ -233,7 +246,7 @@ async def _send_unload_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         handles = await sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT)
     except Exception:
-        await cmd_reply(message, context, "❌ Could not connect to LM Studio. Is it running?")
+        await reply_error(message, _UNREACHABLE_TEXT(), _UNREACHABLE_ACTIONS())
         return
 
     if not handles:
@@ -244,7 +257,7 @@ async def _send_unload_keyboard(target, context: ContextTypes.DEFAULT_TYPE) -> N
     note = _build_limit_note(len(handles))
     await cmd_reply(
         message, context,
-        f"Select a model to unload:{note}",
+        tr("Select a model to unload:") + note,
         reply_markup=keyboard,
     )
 
@@ -259,9 +272,7 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update.effective_message, context, _format_downloaded_list(models), parse_mode="HTML"
         )
     except Exception:
-        await cmd_reply(
-            update.effective_message, context, "❌ Could not connect to LM Studio. Is it running?"
-        )
+        await reply_error(update.effective_message, _UNREACHABLE_TEXT(), _UNREACHABLE_ACTIONS())
 
 
 @require_owner
@@ -274,9 +285,7 @@ async def loaded_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update.effective_message, context, _format_loaded_list(handles), parse_mode="HTML"
         )
     except Exception:
-        await cmd_reply(
-            update.effective_message, context, "❌ Could not connect to LM Studio. Is it running?"
-        )
+        await reply_error(update.effective_message, _UNREACHABLE_TEXT(), _UNREACHABLE_ACTIONS())
 
 
 @require_owner
@@ -301,13 +310,14 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     if not (0.0 <= gpu_val <= 1.0):
                         await cmd_reply(
                             update.effective_message, context,
-                            "❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0"
+                            tr("❌ Invalid gpu value: must be max, auto, or a float "
+                               "between 0.0 and 1.0")
                         )
                         return
                 except ValueError:
                     await cmd_reply(
                         update.effective_message, context,
-                        "❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0"
+                        tr("❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0")
                     )
                     return
         elif arg.startswith("ctx="):
@@ -315,11 +325,13 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 context_length = int(arg[4:])
                 if context_length < 512:
                     await cmd_reply(
-                        update.effective_message, context, "❌ Context length must be >= 512"
+                        update.effective_message, context, tr("❌ Context length must be >= 512")
                     )
                     return
             except ValueError:
-                await cmd_reply(update.effective_message, context, "❌ Invalid context length value")
+                await cmd_reply(
+                    update.effective_message, context, tr("❌ Invalid context length value")
+                )
                 return
         elif arg.startswith("id="):
             identifier = arg[3:]
@@ -328,9 +340,15 @@ async def load_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await perform_load(
             context, model, gpu=gpu, context_length=context_length, identifier=identifier
         )
-        await cmd_reply(update.effective_message, context, f"✅ Model {model} loaded successfully.")
+        await cmd_reply(
+            update.effective_message, context,
+            tr("✅ Model {name} loaded successfully.", name=model),
+        )
     except LmsCliError as e:
-        await cmd_reply(update.effective_message, context, f"❌ Load failed: {e}")
+        await reply_error(
+            update.effective_message, tr("❌ Load failed: {error}", error=e),
+            ((tr("📦 Models"), "menu:models"),),
+        )
 
 
 @require_owner
@@ -344,6 +362,8 @@ async def unload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         await perform_unload(context, identifier)
-        await cmd_reply(update.effective_message, context, f"✅ Model {identifier} unloaded.")
+        await cmd_reply(
+            update.effective_message, context, tr("✅ Model {name} unloaded.", name=identifier)
+        )
     except LmsCliError as e:
         await cmd_reply(update.effective_message, context, f"❌ {e}")

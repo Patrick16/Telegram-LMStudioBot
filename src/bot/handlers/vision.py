@@ -4,6 +4,7 @@ import tempfile
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from src.bot.i18n import tr
 from src.bot.auth import require_owner
 from src.bot.services import inference
 from src.lms import sdk
@@ -29,7 +30,7 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     if not bool(getattr(model_info, "vision", False)):
-        await message.reply_text("❌ The loaded model does not support image input.")
+        await message.reply_text(tr("❌ The loaded model does not support image input."))
         return
 
     # Download the highest resolution photo; the temp file is removed after the turn.

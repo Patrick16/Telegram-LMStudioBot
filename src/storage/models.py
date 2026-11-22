@@ -79,6 +79,7 @@ class ChatSession(BaseModel):
 
 class SessionStore(BaseModel):
     active_session_id: str | None = None
+    language: str = "en"
     sessions: dict[str, ChatSession] = Field(default_factory=dict)
 
 

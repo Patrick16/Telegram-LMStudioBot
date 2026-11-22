@@ -7,6 +7,7 @@ import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from src.bot.i18n import tr
 from src.bot.ephemeral import reply_ephemeral
 from src.bot.handlers.models import perform_load, perform_unload
 from src.bot.handlers.menu.screens import refresh_screen
@@ -20,7 +21,9 @@ CB_INPUT_CANCEL = "input:cancel"
 
 
 def input_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=CB_INPUT_CANCEL)]])
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(tr("❌ Cancel"), callback_data=CB_INPUT_CANCEL)]]
+    )
 
 
 async def request_input(message, context, key: str, prompt: str) -> None:
@@ -105,37 +108,42 @@ async def _refresh_origin_screen(context) -> None:
 
 async def _execute_models_load(text: str, update: Update, context) -> None:
     if not text:
-        await reply_ephemeral(update.effective_message, "❌ Model identifier cannot be empty.")
+        await reply_ephemeral(update.effective_message, tr("❌ Model identifier cannot be empty."))
         return
     try:
         result = await perform_load(context, text)
-        await reply_ephemeral(update.effective_message, f"✅ Model loaded successfully.\n{result}")
+        await reply_ephemeral(
+            update.effective_message,
+            tr("✅ Model loaded successfully.\n{result}", result=result),
+        )
         context.chat_data["pending_input"] = None
         logger.info("Model loaded via menu: %s", text)
     except LmsCliError as e:
-        await reply_ephemeral(update.effective_message, f"❌ Load failed: {e}")
+        await reply_ephemeral(update.effective_message, tr("❌ Load failed: {error}", error=e))
         context.chat_data["pending_input"] = None
 
 
 async def _execute_models_unload(text: str, update: Update, context) -> None:
     if not text:
-        await reply_ephemeral(update.effective_message, "❌ Model identifier cannot be empty.")
+        await reply_ephemeral(update.effective_message, tr("❌ Model identifier cannot be empty."))
         return
     try:
         result = await perform_unload(context, text)
-        await reply_ephemeral(update.effective_message, f"✅ Model unloaded.\n{result}")
+        await reply_ephemeral(
+            update.effective_message, tr("✅ Model unloaded.\n{result}", result=result)
+        )
         context.chat_data["pending_input"] = None
         logger.info("Model unloaded via menu: %s", text)
     except LmsCliError as e:
-        await reply_ephemeral(update.effective_message, f"❌ Unload failed: {e}")
+        await reply_ephemeral(update.effective_message, tr("❌ Unload failed: {error}", error=e))
         context.chat_data["pending_input"] = None
 
 
 async def _execute_sessions_new(text: str, update: Update, context) -> None:
     store = context.bot_data["store"]
-    name = text if text else f"Chat {len(store.list_sessions()) + 1}"
+    name = text if text else tr("Chat {n}", n=len(store.list_sessions()) + 1)
     session = store.create_session(name)
-    await reply_ephemeral(update.effective_message, f"✅ Created chat: {session.name}")
+    await reply_ephemeral(update.effective_message, tr("✅ Created chat: {name}", name=session.name))
     context.chat_data["pending_input"] = None
     logger.info("Session created via menu: %s", session.name)
 
@@ -147,7 +155,7 @@ async def _execute_settings_update(
     session = store.get_active_session()
 
     if session is None:
-        await reply_ephemeral(update.effective_message, "❌ No active chat. Create one first.")
+        await reply_ephemeral(update.effective_message, tr("❌ No active chat. Create one first."))
         context.chat_data["pending_input"] = None
         return
 
@@ -181,20 +189,21 @@ async def _execute_sessions_rename(
     store = context.bot_data["store"]
     session = store.store.sessions.get(session_id) if session_id else store.get_active_session()
     if session is None:
-        await reply_ephemeral(update.effective_message, "❌ No active chat.")
+        await reply_ephemeral(update.effective_message, tr("❌ No active chat."))
         context.chat_data["pending_input"] = None
         return
     if not text:
-        await reply_ephemeral(update.effective_message, "❌ The name cannot be empty.")
+        await reply_ephemeral(update.effective_message, tr("❌ The name cannot be empty."))
         return
     if len(text) > MAX_CHAT_NAME:
         await reply_ephemeral(
-            update.effective_message, f"❌ The name must be {MAX_CHAT_NAME} characters or fewer."
+            update.effective_message,
+            tr("❌ The name must be {limit} characters or fewer.", limit=MAX_CHAT_NAME),
         )
         return
     session.name = text
     store.update_session(session)
-    await reply_ephemeral(update.effective_message, f"✅ Chat renamed to: {text}")
+    await reply_ephemeral(update.effective_message, tr("✅ Chat renamed to: {name}", name=text))
     context.chat_data["pending_input"] = None
 
 
@@ -208,7 +217,7 @@ async def _execute_model_settings_update(
         if text not in ("auto", "max") and not re.match(r"^0?\.\d+$|^1(\.0)?$|^0$", text):
             await reply_ephemeral(
                 update.effective_message,
-                "❌ GPU must be 'auto', 'max', or a fraction 0.0–1.0."
+                tr("❌ GPU must be 'auto', 'max', or a fraction 0.0–1.0.")
             )
             return
         staged["gpu"] = text
@@ -221,7 +230,7 @@ async def _execute_model_settings_update(
         except ValueError:
             await reply_ephemeral(
                 update.effective_message,
-                "❌ Context length must be an integer ≥ 512."
+                tr("❌ Context length must be an integer ≥ 512.")
             )
             return
         staged["context_length"] = val
@@ -230,14 +239,19 @@ async def _execute_model_settings_update(
         staged["identifier"] = text
 
     else:
-        await reply_ephemeral(update.effective_message, f"❌ Unknown model setting: {key}")
+        await reply_ephemeral(
+            update.effective_message, tr("❌ Unknown model setting: {key}", key=key)
+        )
         context.chat_data["pending_input"] = None
         return
 
     context.chat_data["staged_model_settings"] = staged
     await reply_ephemeral(
         update.effective_message,
-        f"✅ Model {key} staged to '{staged[key]}'. Will apply on the next model load."
+        tr(
+            "✅ Model {key} staged to '{value}'. Will apply on the next model load.",
+            key=key, value=staged[key],
+        )
     )
     context.chat_data["pending_input"] = None
 
@@ -249,7 +263,7 @@ async def _execute_history_policy_update(
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
-        await reply_ephemeral(update.effective_message, "❌ No active chat.")
+        await reply_ephemeral(update.effective_message, tr("❌ No active chat."))
         context.chat_data["pending_input"] = None
         return
 
@@ -261,7 +275,7 @@ async def _execute_history_policy_update(
         except ValueError:
             await reply_ephemeral(
                 update.effective_message,
-                "❌ Must be a positive integer."
+                tr("❌ Must be a positive integer.")
             )
             return
         from src.storage.models import HistoryReusePolicy
@@ -271,7 +285,7 @@ async def _execute_history_policy_update(
         store.update_session(session)
         await reply_ephemeral(
             update.effective_message,
-            f"✅ History policy set to last_n_pairs ({val} pairs)"
+            tr("✅ History policy set to last_n_pairs ({count} pairs)", count=val)
         )
         context.chat_data["pending_input"] = None
         return
@@ -282,17 +296,18 @@ async def _execute_save_preset(text: str, update: Update, context) -> None:
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
-        await reply_ephemeral(update.effective_message, "❌ No active chat.")
+        await reply_ephemeral(update.effective_message, tr("❌ No active chat."))
         context.chat_data["pending_input"] = None
         return
     if not text:
-        await reply_ephemeral(update.effective_message, "❌ The name cannot be empty.")
+        await reply_ephemeral(update.effective_message, tr("❌ The name cannot be empty."))
         return
     if len(text) > MAX_PRESET_NAME:
         await reply_ephemeral(
-            update.effective_message, f"❌ The name must be {MAX_PRESET_NAME} characters or fewer."
+            update.effective_message,
+            tr("❌ The name must be {limit} characters or fewer.", limit=MAX_PRESET_NAME),
         )
         return
     store.save_session_preset(text, session.settings)
-    await reply_ephemeral(update.effective_message, f"✅ Preset saved: {text}")
+    await reply_ephemeral(update.effective_message, tr("✅ Preset saved: {name}", name=text))
     context.chat_data["pending_input"] = None

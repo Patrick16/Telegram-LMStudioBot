@@ -593,6 +593,12 @@ def test_parity_matrix_completeness():
     import pathlib
     package_dir = pathlib.Path(menu.__file__).parent
     source = "".join(f.read_text(encoding="utf-8") for f in package_dir.glob("*.py"))
+    # Some callbacks are generated from tables (one button per setting): add the real ones.
+    from src.bot.handlers.menu.keyboards import build_session_settings_menu
+    from src.storage.models import SessionGenerationSettings
+
+    built = build_session_settings_menu(SessionGenerationSettings())
+    source += " ".join(b.callback_data for row in built.inline_keyboard for b in row)
     for _cmd, cb in COMMAND_BUTTON_PARITY:
         # Strip dynamic segment for parametric buttons
         prefix = cb.split("<")[0].rstrip(":")

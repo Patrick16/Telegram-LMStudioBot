@@ -8,6 +8,7 @@ from typing import Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from src.bot.handlers.settings_spec import SETTING_SPECS, SettingSpec
+from src.bot.i18n import mark, tr
 from src.storage.models import SessionGenerationSettings
 
 CB_BACK_SESSION_SETTINGS = "settings:session_menu"
@@ -24,15 +25,15 @@ def _code(value) -> str:
 def display_value(attr: str, value: Any) -> str:
     """Human wording for a setting value."""
     if attr == "max_tokens":
-        return "unlimited" if value == -1 else str(value)
+        return tr("unlimited") if value == -1 else str(value)
     if attr == "seed":
-        return "random" if value is None else str(value)
+        return tr("random") if value is None else str(value)
     if attr == "system_prompt":
-        return value if value else "none"
+        return value if value else tr("none")
     if attr == "stop_strings":
-        return ", ".join(value) if value else "none"
+        return ", ".join(value) if value else tr("none")
     if value is None:
-        return "default"
+        return tr("default")
     return str(value)
 
 
@@ -45,9 +46,9 @@ def _short(text: str, limit: int = 60) -> str:
 # ---------------------------------------------------------------------------
 
 CREATIVITY_MODES: dict[str, tuple[str, dict[str, float]]] = {
-    "precise": ("🎯 Precise", {"temperature": 0.2, "top_p": 0.9}),
-    "balanced": ("⚖️ Balanced", {"temperature": 0.7, "top_p": 1.0}),
-    "creative": ("🎨 Creative", {"temperature": 1.1, "top_p": 0.95}),
+    "precise": (mark("🎯 Precise"), {"temperature": 0.2, "top_p": 0.9}),
+    "balanced": (mark("⚖️ Balanced"), {"temperature": 0.7, "top_p": 1.0}),
+    "creative": (mark("🎨 Creative"), {"temperature": 1.1, "top_p": 0.95}),
 }
 
 
@@ -60,14 +61,14 @@ def current_mode(settings: SessionGenerationSettings) -> str | None:
 
 def mode_title(settings: SessionGenerationSettings) -> str:
     key = current_mode(settings)
-    return CREATIVITY_MODES[key][0] if key else "🛠 Custom"
+    return tr(CREATIVITY_MODES[key][0]) if key else tr("🛠 Custom")
 
 
 def build_modes_row(settings: SessionGenerationSettings | None) -> list[InlineKeyboardButton]:
     active = current_mode(settings) if settings is not None else None
     return [
         InlineKeyboardButton(
-            ("✅ " if key == active else "") + title, callback_data=f"settings:mode:{key}"
+            ("✅ " if key == active else "") + tr(title), callback_data=f"settings:mode:{key}"
         )
         for key, (title, _) in CREATIVITY_MODES.items()
     ]
@@ -78,29 +79,44 @@ def build_modes_row(settings: SessionGenerationSettings | None) -> list[InlineKe
 # ---------------------------------------------------------------------------
 
 HISTORY_POLICIES: dict[str, tuple[str, str]] = {
-    "off": ("🚫 No history", "Every message stands alone; the model remembers nothing."),
-    "fit_budget_recent": (
-        "📐 Fit to context", "As many of the newest messages as fit the model's context window."
+    "off": (
+        mark("🚫 No history"),
+        mark("Every message stands alone; the model remembers nothing."),
     ),
-    "last_n_pairs": ("🔢 Last N exchanges", "Only the last N question–answer pairs."),
-    "full_if_possible": ("📋 Full history", "Everything, as long as it fits the context window."),
+    "fit_budget_recent": (
+        mark("📐 Fit to context"),
+        mark("As many of the newest messages as fit the model's context window."),
+    ),
+    "last_n_pairs": (
+        mark("🔢 Last N exchanges"),
+        mark("Only the last N question–answer pairs."),
+    ),
+    "full_if_possible": (
+        mark("📋 Full history"),
+        mark("Everything, as long as it fits the context window."),
+    ),
 }
 
 
 def history_policy_title(mode: str) -> str:
-    return HISTORY_POLICIES.get(mode, (mode, ""))[0]
+    return tr(HISTORY_POLICIES.get(mode, (mode, ""))[0])
 
 
 def render_history_policy_text(settings: SessionGenerationSettings | None) -> str:
-    lines = ["📜 <b>History Reuse Policy</b>", "How much of the chat the model sees each turn."]
+    lines = [
+        tr("📜 <b>History Reuse Policy</b>"),
+        tr("How much of the chat the model sees each turn."),
+    ]
     if settings is not None:
         policy = settings.history_policy
         title, description = HISTORY_POLICIES.get(policy.mode, (policy.mode, ""))
-        lines.append(f"Current: <b>{title}</b>")
+        lines.append(tr("Current: <b>{title}</b>", title=tr(title)))
         if description:
-            lines.append(f"<i>{description}</i>")
+            lines.append(f"<i>{tr(description)}</i>")
         if policy.mode == "last_n_pairs" and policy.message_pair_limit is not None:
-            lines.append(f"Keeping the last {policy.message_pair_limit} exchange(s).")
+            lines.append(
+                tr("Keeping the last {count} exchange(s).", count=policy.message_pair_limit)
+            )
     return "\n".join(lines)
 
 
@@ -108,7 +124,7 @@ def render_history_policy_text(settings: SessionGenerationSettings | None) -> st
 # Parameter screen
 # ---------------------------------------------------------------------------
 
-def _is_chosen(spec: SettingSpec, current: Any, value: Any) -> bool:
+def _is_chosen(current: Any, value: Any) -> bool:
     if value is None or current is None:
         return value is None and current is None
     return current == value
@@ -118,25 +134,27 @@ def render_param_text(key: str, settings: SessionGenerationSettings) -> str:
     spec = SETTING_SPECS[key]
     current = getattr(settings, spec.attr)
     default = getattr(SessionGenerationSettings(), spec.attr)
-    lines = [f"{spec.icon} <b>{spec.title}</b>", f"<i>{spec.description}</i>", ""]
+    lines = [f"{spec.icon} <b>{tr(spec.title)}</b>", f"<i>{tr(spec.description)}</i>", ""]
     shown = _short(display_value(spec.attr, current), 300 if key == "prompt" else 60)
-    lines.append(f"Current: {_code(shown)}")
+    lines.append(tr("Current: {value}", value=_code(shown)))
     if default != current:
-        lines.append(f"Default: {_code(_short(display_value(spec.attr, default)))}")
+        lines.append(
+            tr("Default: {value}", value=_code(_short(display_value(spec.attr, default))))
+        )
     if spec.hint:
-        lines.append(f"Allowed: {spec.hint}")
+        lines.append(tr("Allowed: {hint}", hint=tr(spec.hint)))
     return "\n".join(lines)
 
 
 def build_param_keyboard(key: str, settings: SessionGenerationSettings) -> InlineKeyboardMarkup:
-    spec = SETTING_SPECS[key]
+    spec: SettingSpec = SETTING_SPECS[key]
     current = getattr(settings, spec.attr)
     rows: list[list[InlineKeyboardButton]] = []
 
     per_row = 2 if key == "prompt" else 3
     picks = [
         InlineKeyboardButton(
-            ("✅ " if _is_chosen(spec, current, value) else "") + label,
+            ("✅ " if _is_chosen(current, value) else "") + tr(label),
             callback_data=f"settings:param:pick:{index}",
         )
         for index, (label, value) in enumerate(spec.choices)
@@ -150,10 +168,10 @@ def build_param_keyboard(key: str, settings: SessionGenerationSettings) -> Inlin
             InlineKeyboardButton(f"➕ {spec.step:g}", callback_data="settings:param:step:1"),
         ])
     rows.append([
-        InlineKeyboardButton("✏️ Enter value", callback_data="settings:param:input"),
-        InlineKeyboardButton("↺ Default", callback_data="settings:param:reset"),
+        InlineKeyboardButton(tr("✏️ Enter value"), callback_data="settings:param:input"),
+        InlineKeyboardButton(tr("↺ Default"), callback_data="settings:param:reset"),
     ])
-    rows.append([InlineKeyboardButton("⬅ Back", callback_data=CB_BACK_SESSION_SETTINGS)])
+    rows.append([InlineKeyboardButton(tr("⬅ Back"), callback_data=CB_BACK_SESSION_SETTINGS)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -163,19 +181,19 @@ def build_param_keyboard(key: str, settings: SessionGenerationSettings) -> Inlin
 
 def summarize_session_settings(settings: SessionGenerationSettings) -> list[str]:
     """One readable line per setting (Telegram HTML)."""
-    lines = [f"🎭 Mode: {mode_title(settings)}"]
+    lines = [tr("🎭 Mode: {mode}", mode=mode_title(settings))]
     for key, spec in SETTING_SPECS.items():
         value = getattr(settings, spec.attr)
         limit = 60 if key == "prompt" else 40
-        lines.append(
-            f"{spec.icon} {spec.title}: {_code(_short(display_value(spec.attr, value), limit))}"
-        )
-    lines.append(f"💭 Show reasoning: {_code('on' if settings.show_reasoning else 'off')}")
+        shown = _code(_short(display_value(spec.attr, value), limit))
+        lines.append(f"{spec.icon} {tr(spec.title)}: {shown}")
+    state = tr("on") if settings.show_reasoning else tr("off")
+    lines.append(tr("💭 Show reasoning: {state}", state=_code(state)))
     policy = settings.history_policy
     history = history_policy_title(policy.mode)
     if policy.mode == "last_n_pairs" and policy.message_pair_limit is not None:
         history += f" ({policy.message_pair_limit})"
-    lines.append(f"📜 History: {history}")
+    lines.append(tr("📜 History: {policy}", policy=history))
     return lines
 
 
@@ -198,11 +216,13 @@ def render_model_preset_card(preset) -> str:
     if preset.description:
         lines.append(f"<i>{html.escape(preset.description, quote=False)}</i>")
     lines.append("")
-    lines.append(f"🖥 GPU: {_code(s.gpu)}")
-    lines.append(f"📏 Context length: {_code(s.context_length or 'model default')}")
-    lines.append(f"🏷 Identifier: {_code(s.identifier or 'model name')}")
+    lines.append(tr("🖥 GPU: {value}", value=_code(s.gpu)))
+    lines.append(
+        tr("📏 Context length: {value}", value=_code(s.context_length or tr("model default")))
+    )
+    lines.append(tr("🏷 Identifier: {value}", value=_code(s.identifier or tr("model name"))))
     lines.append("")
-    lines.append("<i>Applied on the next model load.</i>")
+    lines.append(tr("<i>Applied on the next model load.</i>"))
     return "\n".join(lines)
 
 
@@ -215,18 +235,18 @@ def build_presets_keyboard(kind: str, presets, *, can_save: bool) -> InlineKeybo
         )])
     if can_save:
         rows.append([InlineKeyboardButton(
-            "💾 Save current as preset", callback_data="settings:save_session_preset"
+            tr("💾 Save current as preset"), callback_data="settings:save_session_preset"
         )])
-    rows.append([InlineKeyboardButton("⬅ Back", callback_data="menu:settings")])
+    rows.append([InlineKeyboardButton(tr("⬅ Back"), callback_data="menu:settings")])
     return InlineKeyboardMarkup(rows)
 
 
 def build_preset_card_keyboard(kind: str, index: int) -> InlineKeyboardMarkup:
     apply_cb = f"settings:apply_{kind}_preset:{index}"
-    rows = [[InlineKeyboardButton("✅ Apply", callback_data=apply_cb)]]
+    rows = [[InlineKeyboardButton(tr("✅ Apply"), callback_data=apply_cb)]]
     if kind == "session":
-        rows[0].append(
-            InlineKeyboardButton("🗑 Delete", callback_data=f"settings:del_session_preset:{index}")
-        )
-    rows.append([InlineKeyboardButton("⬅ Back", callback_data=f"settings:{kind}_presets")])
+        rows[0].append(InlineKeyboardButton(
+            tr("🗑 Delete"), callback_data=f"settings:del_session_preset:{index}"
+        ))
+    rows.append([InlineKeyboardButton(tr("⬅ Back"), callback_data=f"settings:{kind}_presets")])
     return InlineKeyboardMarkup(rows)

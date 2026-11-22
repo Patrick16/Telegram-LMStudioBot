@@ -55,3 +55,13 @@ def _lms_offline_by_default(monkeypatch):
     monkeypatch.setattr(
         "src.lms.sdk.list_downloaded_models", AsyncMock(side_effect=ConnectionError("offline"))
     )
+
+
+@pytest.fixture(autouse=True)
+def _english_ui():
+    """Tests assert English UI text; the language is process-wide, so reset it around each test."""
+    from src.bot import i18n
+
+    i18n.set_language("en")
+    yield
+    i18n.set_language("en")

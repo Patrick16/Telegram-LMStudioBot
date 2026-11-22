@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 
+from src.bot.i18n import tr
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _UNCLOSED_THINK_RE = re.compile(r"<think>.*$", re.DOTALL)
 _CODE_RE = re.compile(r"```(?:[^\n`]*)\n?(.*?)```|`([^`\n]+)`", re.DOTALL)
@@ -71,7 +72,7 @@ def format_stream_preview(raw_text: str) -> str:
     """
     visible = strip_think_tags(raw_text)
     if not visible:
-        return "💭 Thinking…" if "<think>" in raw_text else "⏳ Thinking..."
+        return tr("💭 Thinking…") if "<think>" in raw_text else tr("⏳ Thinking...")
     if len(visible) > _PREVIEW_LIMIT:
         visible = "…" + visible[-_PREVIEW_LIMIT:]
     return visible + _CURSOR
@@ -101,7 +102,7 @@ def format_response(text: str, show_reasoning: bool = False) -> str:
     """
     cleaned = strip_think_tags(text)
     if not cleaned:
-        return "<i>(no response)</i>"
+        return tr("<i>(no response)</i>")
     if show_reasoning:
         reasoning = extract_reasoning(text)
         if reasoning:
@@ -130,7 +131,7 @@ def format_response(text: str, show_reasoning: bool = False) -> str:
     if tail:
         parts.append(_markdown_to_html(html.escape(tail, quote=False)))
 
-    return "".join(parts) or "<i>(no response)</i>"
+    return "".join(parts) or tr("<i>(no response)</i>")
 
 
 _TELEGRAM_MAX_LENGTH = 4096

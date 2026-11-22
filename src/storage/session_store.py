@@ -106,6 +106,13 @@ class SessionStoreManager:
         self.save()
         return session
 
+    def get_language(self) -> str:
+        return self._store.language
+
+    def set_language(self, code: str) -> None:
+        self._store.language = code
+        self.save()
+
     def get_active_session(self) -> ChatSession | None:
         if self._store.active_session_id is None:
             return None

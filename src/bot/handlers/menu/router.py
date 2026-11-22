@@ -8,11 +8,14 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
-from src.bot.ephemeral import reply_ephemeral
+from src.bot import i18n
+from src.bot.commands import render_commands_list
+from src.bot.ephemeral import CB_DISMISS, reply_ephemeral
 from src.bot.handlers.menu.keyboards import (
     build_delete_confirmation_keyboard,
     build_help_models,
     build_help_sessions,
+    build_back_button,
     build_help_settings,
     build_sessions_list_keyboard,
     render_delete_confirmation,
@@ -23,6 +26,7 @@ from src.bot.handlers.menu.screens import (
     SCREEN_CURRENT_SETTINGS,
     SCREEN_HELP,
     SCREEN_HISTORY_POLICY,
+    SCREEN_LANGUAGE,
     SCREEN_CHAT_CARD,
     SCREEN_CHATS,
     SCREEN_MAIN,
@@ -40,6 +44,7 @@ from src.bot.handlers.menu.screens import (
     render_screen,
     show_screen,
 )
+from src.bot.i18n import mark, tr
 from src.bot.pagination import NOOP
 from src.bot.handlers.models import (
     _build_load_keyboard,
@@ -119,11 +124,18 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await show_screen(query, context, data)
         return
 
+    if data == CB_DISMISS:
+        try:
+            await query.message.delete()
+        except BadRequest:
+            pass
+        return
+
     if data == CB_INPUT_CANCEL:
         context.chat_data["pending_input"] = None
         context.chat_data.pop("pending_return", None)
         try:
-            await query.edit_message_text("❌ Cancelled.")
+            await query.edit_message_text(tr("❌ Cancelled."))
         except BadRequest:
             pass
         return
@@ -131,7 +143,7 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     # Buttons under a reply / the "thinking" placeholder
     if data == inference.CB_STOP:
         if not get_generations(context).stop(query.message.chat_id):
-            await reply_ephemeral(query.message, "Nothing is being generated right now.")
+            await reply_ephemeral(query.message, tr("Nothing is being generated right now."))
         return
 
     if data == inference.CB_RETRY:
@@ -149,7 +161,7 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if data == inference.CB_NEW_CHAT:
         store = context.bot_data["store"]
         session = store.create_session(f"Chat {len(store.list_sessions()) + 1}")
-        await reply_ephemeral(query.message, f"✅ New chat started: {session.name}")
+        await reply_ephemeral(query.message, tr("✅ New chat started: {name}", name=session.name))
         return
 
     if data == inference.CB_MENU:
@@ -173,7 +185,12 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 # Help section handler
 # ---------------------------------------------------------------------------
 
+def build_help_commands():
+    return render_commands_list(), build_back_button("menu:help")
+
+
 HELP_TOPIC_BUILDERS = {
+    "menu:help:commands": build_help_commands,
     "menu:help:models": build_help_models,
     "menu:help:sessions": build_help_sessions,
     "menu:help:settings": build_help_settings,
@@ -218,7 +235,7 @@ async def _handle_models_action(query, context, data: str) -> None:
         index = int(data[len("models:card:"):])
         if not 0 <= index < len(cache):
             await show_screen(
-                query, context, SCREEN_MODELS, banner="⚠️ The model list changed — pick again."
+                query, context, SCREEN_MODELS, banner=tr("⚠️ The model list changed — pick again.")
             )
             return
         context.chat_data["model_card_key"] = cache[index].key
@@ -243,11 +260,11 @@ async def _model_card_action(query, context, action: str) -> None:
         store = context.bot_data["store"]
         session = store.get_active_session()
         if session is None:
-            banner = "❌ No active chat. Create one first."
+            banner = tr("❌ No active chat. Create one first.")
         else:
             session.model_identifier = key
             store.update_session(session)
-            banner = f"✅ This chat now uses {key}"
+            banner = tr("✅ This chat now uses {name}", name=key)
         await show_screen(query, context, SCREEN_MODEL_CARD, banner=banner)
         return
 
@@ -255,20 +272,26 @@ async def _model_card_action(query, context, action: str) -> None:
         logger.warning("Unknown model card action: %s", action)
         return
 
-    verb = "Loading" if action == "load" else "Unloading"
+    progress = (
+        tr("⏳ Loading {name}…", name=key) if action == "load"
+        else tr("⏳ Unloading {name}…", name=key)
+    )
     try:
-        await query.edit_message_text(f"⏳ {verb} {key}…")
+        await query.edit_message_text(progress)
     except BadRequest:
         pass
     try:
         if action == "load":
             await perform_load(context, key)
-            banner = f"✅ Loaded {key} — this chat now uses it."
+            banner = tr("✅ Loaded {name} — this chat now uses it.", name=key)
         else:
             await perform_unload(context, key)
-            banner = f"✅ Unloaded {key}."
+            banner = tr("✅ Unloaded {name}.", name=key)
     except LmsCliError as e:
-        banner = f"❌ {verb} failed: {e}"
+        banner = (
+            tr("❌ Loading failed: {error}", error=e) if action == "load"
+            else tr("❌ Unloading failed: {error}", error=e)
+        )
     await show_screen(query, context, SCREEN_MODEL_CARD, banner=banner)
 
 
@@ -280,7 +303,7 @@ async def _show_load_page(query, context, page: int) -> None:
             sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT),
         )
     except Exception:
-        await reply_ephemeral(query.message, "❌ Could not connect to LM Studio. Is it running?")
+        await reply_ephemeral(query.message, tr("❌ Could not connect to LM Studio. Is it running?"))
         return
     loaded = {getattr(h, "identifier", None) for h in handles}
     try:
@@ -295,21 +318,25 @@ async def _show_load_page(query, context, page: int) -> None:
 async def _handle_load_model_callback(query, context, data: str) -> None:
     model_key = data[len("models:loadmodel:"):]
     try:
-        await query.edit_message_text(f"⏳ Loading {model_key}…")
+        await query.edit_message_text(tr("⏳ Loading {name}…", name=model_key))
         await perform_load(context, model_key)
-        await query.edit_message_text(f"✅ Loaded {model_key}.")
+        await query.edit_message_text(tr("✅ Loaded {name}.", name=model_key))
     except LmsCliError as e:
-        await query.edit_message_text(f"❌ Failed to load {model_key}: {e}")
+        await query.edit_message_text(
+            tr("❌ Failed to load {name}: {error}", name=model_key, error=e)
+        )
 
 
 async def _handle_unload_model_callback(query, context, data: str) -> None:
     identifier = data[len("models:unloadmodel:"):]
     try:
-        await query.edit_message_text(f"⏳ Unloading {identifier}…")
+        await query.edit_message_text(tr("⏳ Unloading {name}…", name=identifier))
         await perform_unload(context, identifier)
-        await query.edit_message_text(f"✅ Unloaded {identifier}.")
+        await query.edit_message_text(tr("✅ Unloaded {name}.", name=identifier))
     except LmsCliError as e:
-        await query.edit_message_text(f"❌ Failed to unload {identifier}: {e}")
+        await query.edit_message_text(
+            tr("❌ Failed to unload {name}: {error}", name=identifier, error=e)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -323,8 +350,8 @@ _RESETTABLE_SETTINGS = (
 )
 
 _SESSIONS_PAGE_TITLES = {
-    "switch": "🗂 Select a chat:",
-    "remove_ask": "🗑 Select a chat to remove:",
+    "switch": mark("🗂 Select a chat:"),
+    "remove_ask": mark("🗑 Select a chat to remove:"),
 }
 
 
@@ -336,7 +363,7 @@ async def _show_sessions_page(query, context, action: str, page: int) -> None:
     context.chat_data["menu_screen"] = None  # dynamic screen: not in the registry
     try:
         await query.edit_message_text(
-            text=_SESSIONS_PAGE_TITLES.get(action, "🗂 Select a chat:"), reply_markup=keyboard
+            text=tr(_SESSIONS_PAGE_TITLES.get(action, "🗂 Select a chat:")), reply_markup=keyboard
         )
     except BadRequest:
         pass
@@ -348,7 +375,7 @@ async def _handle_sessions_action(query, context, data: str) -> None:
     if data == "sessions:new":
         await request_input(
             query.message, context, "sessions:new",
-            "Enter a name for the new chat (or send empty for auto-name):",
+            tr("Enter a name for the new chat (or send empty for auto-name):"),
         )
         return
 
@@ -364,7 +391,7 @@ async def _handle_sessions_action(query, context, data: str) -> None:
 
     if data == "sessions:remove":
         if not store.list_sessions():
-            await show_screen(query, context, SCREEN_SESSIONS, banner="No chats to remove.")
+            await show_screen(query, context, SCREEN_SESSIONS, banner=tr("No chats to remove."))
             return
         await _show_sessions_page(query, context, "remove_ask", 0)
         return
@@ -381,26 +408,29 @@ async def _handle_sessions_action(query, context, data: str) -> None:
     if data == "sessions:rename":
         if store.get_active_session() is None:
             await show_screen(
-                query, context, SCREEN_SESSIONS, banner="❌ No active chat. Create one first."
+                query, context, SCREEN_SESSIONS, banner=tr("❌ No active chat. Create one first.")
             )
             return
         await request_input(
-            query.message, context, "sessions:rename", "Enter a new name for the current chat:"
+            query.message, context, "sessions:rename", tr("Enter a new name for the current chat:")
         )
         return
 
     if data.startswith("sessions:rename:"):
         session_id = data[len("sessions:rename:"):]
         if session_id not in store.store.sessions:
-            await show_screen(query, context, SCREEN_CHATS, banner="❌ Chat not found.")
+            await show_screen(query, context, SCREEN_CHATS, banner=tr("❌ Chat not found."))
             return
-        await request_input(query.message, context, data, "Enter a new name for this chat:")
+        await request_input(query.message, context, data, tr("Enter a new name for this chat:"))
         return
 
     if data.startswith("sessions:switch:"):
         session_id = data[len("sessions:switch:"):]
         result = store.switch_session(session_id)
-        banner = f"✅ Switched to chat: {result.name}" if result else "❌ Chat not found."
+        banner = (
+            tr("✅ Switched to chat: {name}", name=result.name) if result
+            else tr("❌ Chat not found.")
+        )
         logger.info("Session switch via menu: %s", session_id)
         await show_screen(query, context, SCREEN_MAIN, banner=banner)
         return
@@ -411,7 +441,7 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         context.chat_data["delete_from_card"] = from_card
         session = store.store.sessions.get(session_id)
         if session is None:
-            await show_screen(query, context, SCREEN_SESSIONS, banner="❌ Chat not found.")
+            await show_screen(query, context, SCREEN_SESSIONS, banner=tr("❌ Chat not found."))
             return
         count = len(store.load_history(session_id))
         context.chat_data["menu_screen"] = None
@@ -429,7 +459,8 @@ async def _handle_sessions_action(query, context, data: str) -> None:
 
     if data.startswith("sessions:confirm_remove:"):
         session_id = data[len("sessions:confirm_remove:"):]
-        banner = "✅ Chat removed." if store.delete_session(session_id) else "❌ Chat not found."
+        removed = store.delete_session(session_id)
+        banner = tr("✅ Chat removed.") if removed else tr("❌ Chat not found.")
         logger.info("Session removed via menu: %s", session_id)
         from_card = context.chat_data.pop("delete_from_card", False)
         target = SCREEN_CHATS if from_card else SCREEN_SESSIONS
@@ -446,9 +477,9 @@ _SETTINGS_SCREENS = frozenset({
 })
 
 _MODEL_SETTING_PROMPTS = {
-    "settings:model:gpu": "Enter GPU setting (auto, max, or 0.0–1.0):",
-    "settings:model:context_length": "Enter context length (integer ≥ 512):",
-    "settings:model:identifier": "Enter model identifier:",
+    "settings:model:gpu": mark("Enter GPU setting (auto, max, or 0.0–1.0):"),
+    "settings:model:context_length": mark("Enter context length (integer ≥ 512):"),
+    "settings:model:identifier": mark("Enter model identifier:"),
 }
 
 
@@ -462,7 +493,7 @@ async def _handle_param_action(query, context, session, action: str) -> None:
 
     if action == "input":
         key = context.chat_data["param_key"]
-        await request_input(query.message, context, f"settings:session:{key}", spec.prompt)
+        await request_input(query.message, context, f"settings:session:{key}", tr(spec.prompt))
         return
 
     current = getattr(session.settings, spec.attr)
@@ -477,12 +508,12 @@ async def _handle_param_action(query, context, session, action: str) -> None:
         try:
             value = step_value(spec, current, int(action[len("step:"):]))
         except ValueError:
-            await show_screen(query, context, SCREEN_PARAM, banner="⚠️ Already at the limit.")
+            await show_screen(query, context, SCREEN_PARAM, banner=tr("⚠️ Already at the limit."))
             return
         message = spec.on_set(value)
     elif action == "reset":
         value = getattr(SessionGenerationSettings(), spec.attr)
-        message = f"✅ {spec.title} reset to default."
+        message = tr("✅ {title} reset to default.", title=tr(spec.title))
     else:
         logger.warning("Unknown parameter action: %s", action)
         return
@@ -498,7 +529,7 @@ async def _handle_preset_action(query, context, session, data: str) -> bool:
 
     if data == "settings:model_presets":
         if not store.load_model_presets().presets:
-            await show_screen(query, context, SCREEN_SETTINGS, banner="No model presets found.")
+            await show_screen(query, context, SCREEN_SETTINGS, banner=tr("No model presets found."))
         else:
             await show_screen(query, context, SCREEN_MODEL_PRESETS)
         return True
@@ -517,14 +548,17 @@ async def _handle_preset_action(query, context, session, data: str) -> bool:
         index = int(data[len("settings:apply_model_preset:"):])
         presets = store.load_model_presets().presets
         if not 0 <= index < len(presets):
-            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
+            await show_screen(query, context, SCREEN_SETTINGS, banner=tr("❌ Invalid preset."))
             return True
         preset = presets[index]
         # Model presets are informational — stage the values for the next load.
         context.chat_data["staged_model_settings"] = preset.settings.model_dump()
         await show_screen(
             query, context, SCREEN_SETTINGS,
-            banner=f"✅ Model preset '{preset.name}' staged. Applies on the next model load.",
+            banner=tr(
+                "✅ Model preset '{name}' staged. Applies on the next model load.",
+                name=preset.name,
+            ),
         )
         return True
 
@@ -532,41 +566,69 @@ async def _handle_preset_action(query, context, session, data: str) -> bool:
         index = int(data[len("settings:apply_session_preset:"):])
         presets = store.load_session_presets().presets
         if not 0 <= index < len(presets):
-            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
+            await show_screen(query, context, SCREEN_SETTINGS, banner=tr("❌ Invalid preset."))
             return True
         preset = presets[index]
         session.settings = preset.settings.model_copy(deep=True)
         store.update_session(session)
         await show_screen(
             query, context, SCREEN_SESSION_SETTINGS,
-            banner=f"✅ Session preset '{preset.name}' applied.",
+            banner=tr("✅ Session preset '{name}' applied.", name=preset.name),
         )
         return True
 
     if data.startswith("settings:del_session_preset:"):
         index = int(data[len("settings:del_session_preset:"):])
-        banner = "✅ Preset deleted." if store.delete_session_preset(index) else "❌ Invalid preset."
+        deleted = store.delete_session_preset(index)
+        banner = tr("✅ Preset deleted.") if deleted else tr("❌ Invalid preset.")
         await show_screen(query, context, SCREEN_SESSION_PRESETS, banner=banner)
         return True
 
     if data == "settings:save_session_preset":
         await request_input(
             query.message, context, "settings:save_preset",
-            "Enter a name for the preset (it saves this chat's current settings):",
+            tr("Enter a name for the preset (it saves this chat's current settings):"),
         )
         return True
 
     return False
 
 
+async def _handle_language_action(query, context, data: str) -> None:
+    """Language screen and switching (needs no active chat)."""
+    if data == "settings:language":
+        await show_screen(query, context, SCREEN_LANGUAGE)
+        return
+    code = data[len("settings:language:"):]
+    if code not in i18n.LANGUAGES:
+        logger.warning("Unknown language: %s", code)
+        return
+    context.bot_data["store"].set_language(code)
+    i18n.set_language(code)
+    await show_screen(
+        query, context, SCREEN_LANGUAGE,
+        banner=tr("✅ Language: {name}", name=i18n.LANGUAGES[code]),
+    )
+    # The bottom keyboard keeps its old labels until a new one is sent.
+    from src.bot.handlers.quickbar import quickbar_keyboard
+
+    await reply_ephemeral(
+        query.message, tr("⌨️ Shortcut keyboard updated."), reply_markup=quickbar_keyboard()
+    )
+
+
 async def _handle_settings_action(query, context, data: str) -> None:
+    if data.startswith("settings:language"):
+        await _handle_language_action(query, context, data)
+        return
+
     store = context.bot_data["store"]
     session = store.get_active_session()
 
     if session is None:
         await show_screen(
             query, context, SCREEN_SETTINGS,
-            banner="❌ No active chat. Create one in Chats first.",
+            banner=tr("❌ No active chat. Create one in Chats first."),
         )
         return
 
@@ -589,7 +651,10 @@ async def _handle_settings_action(query, context, data: str) -> None:
         for attr, value in values.items():
             setattr(session.settings, attr, value)
         store.update_session(session)
-        await show_screen(query, context, SCREEN_SESSION_SETTINGS, banner=f"✅ Mode: {title}")
+        await show_screen(
+            query, context, SCREEN_SESSION_SETTINGS,
+            banner=tr("✅ Mode: {title}", title=tr(title)),
+        )
         return
 
     # --- History Policy ---
@@ -598,14 +663,14 @@ async def _handle_settings_action(query, context, data: str) -> None:
         if mode == "last_n_pairs":
             await request_input(
                 query.message, context, "settings:history_policy:last_n_pairs",
-                "Enter the number of message pairs to keep:",
+                tr("Enter the number of message pairs to keep:"),
             )
             return
         session.settings.history_policy = HistoryReusePolicy(mode=mode)
         store.update_session(session)
         await show_screen(
             query, context, SCREEN_HISTORY_POLICY,
-            banner=f"✅ History: {history_policy_title(mode)}",
+            banner=tr("✅ History: {policy}", policy=history_policy_title(mode)),
         )
         return
 
@@ -615,7 +680,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
 
     # --- Model-scoped value prompts ---
     if data in _MODEL_SETTING_PROMPTS:
-        await request_input(query.message, context, data, _MODEL_SETTING_PROMPTS[data])
+        await request_input(query.message, context, data, tr(_MODEL_SETTING_PROMPTS[data]))
         return
 
     # --- Session toggles / reset / per-setting screens ---
@@ -633,7 +698,7 @@ async def _handle_settings_action(query, context, data: str) -> None:
             store.update_session(session)
             await show_screen(
                 query, context, SCREEN_SESSION_SETTINGS,
-                banner="✅ Generation settings reset to defaults.",
+                banner=tr("✅ Generation settings reset to defaults."),
             )
             return
         if key in SETTING_SPECS:

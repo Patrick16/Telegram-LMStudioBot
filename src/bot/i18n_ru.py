@@ -1,0 +1,436 @@
+"""Russian translations (English text -> Russian).
+
+Placeholders such as ``{name}`` must be kept exactly; a test checks that every English
+string used in the code has an entry here and that placeholders match.
+"""
+
+RU: dict[str, str] = {
+    # --- command sections / descriptions ---
+    "Model Management": "Управление моделями",
+    "Chat Sessions": "Чаты",
+    "Settings": "Настройки",
+    "Chat": "Диалог",
+    "General": "Общее",
+    "🤖 <b>LMStudioBot</b> — Control LM Studio from Telegram":
+        "🤖 <b>LMStudioBot</b> — управление LM Studio из Telegram",
+    "List available models on disk": "Список моделей на диске",
+    "List currently loaded models": "Список загруженных моделей",
+    "Load a model": "Загрузить модель",
+    "Unload a model": "Выгрузить модель",
+    "Start a new chat": "Начать новый чат",
+    "List all chats": "Список всех чатов",
+    "Switch the active chat": "Переключить активный чат",
+    "Delete a chat": "Удалить чат",
+    "Rename the active chat": "Переименовать активный чат",
+    "Set or clear the system prompt": "Задать или очистить системный промпт",
+    "Adjust a generation setting": "Изменить параметр генерации",
+    "Stop the current reply": "Остановить текущий ответ",
+    "Regenerate the last reply": "Сгенерировать последний ответ заново",
+    "LM Studio and chat status": "Статус LM Studio и чата",
+    "Open the interactive menu": "Открыть интерактивное меню",
+    "Show all commands": "Показать все команды",
+    "Send any text message — chat with the model": "Отправьте любое сообщение — поговорите с моделью",
+    "Send a photo — analyze it with a vision model":
+        "Отправьте фото — модель с поддержкой изображений его разберёт",
+    "✖ Close": "✖ Закрыть",
+    "<i>(no response)</i>": "<i>(нет ответа)</i>",
+    "💭 Thinking…": "💭 Размышляю…",
+    "⏳ Thinking...": "⏳ Думаю...",
+    # --- chats (commands) ---
+    "Chat {n}": "Чат {n}",
+    "💬 Your chats:": "💬 Ваши чаты:",
+    '💬 New chat "{name}" created and activated.': '💬 Новый чат «{name}» создан и активирован.',
+    "[{i}] {active}{name}{model} — {count} messages": "[{i}] {active}{name}{model} — сообщений: {count}",
+    '✅ Switched to "{name}".': "✅ Переключено на «{name}».",
+    '🗑 Chat "{name}" removed.': "🗑 Чат «{name}» удалён.",
+    '✅ Chat renamed to "{name}".': "✅ Чат переименован: «{name}».",
+    "💬 No chats yet. Use /newchat to create one.": "💬 Чатов пока нет. Создайте первый: /newchat.",
+    "❌ Usage: /switchchat <id_or_number>": "❌ Использование: /switchchat <id_или_номер>",
+    "❌ Chat not found: {arg}": "❌ Чат не найден: {arg}",
+    "❌ Usage: /removechat <id_or_number>": "❌ Использование: /removechat <id_или_номер>",
+    "❌ No active chat. Use /newchat first.": "❌ Нет активного чата. Сначала выполните /newchat.",
+    "❌ Usage: /renamechat <new name>": "❌ Использование: /renamechat <новое имя>",
+    "❌ The name must be 64 characters or fewer.": "❌ Имя должно быть не длиннее 64 символов.",
+    # --- onboarding ---
+    "👋 <b>Welcome to LMStudioBot</b>\nQuick start:\n1️⃣ Open 📦 Models and load a model\n"
+    "2️⃣ Just send a message to chat\n3️⃣ Tune the replies in ⚙️ Settings\n\n":
+        "👋 <b>Добро пожаловать в LMStudioBot</b>\nБыстрый старт:\n"
+        "1️⃣ Откройте 📦 Модели и загрузите модель\n"
+        "2️⃣ Просто отправьте сообщение — и общайтесь\n"
+        "3️⃣ Настройте ответы в ⚙️ Настройках\n\n",
+    "👉 No model is loaded yet — open 📦 Models and tap one to load it.":
+        "👉 Модель ещё не загружена — откройте 📦 Модели и выберите её.",
+    # --- models ---
+    "📦 <b>Models</b>\n🔴 LM Studio is unreachable.\nStart LM Studio and enable its local server, then retry.":
+        "📦 <b>Модели</b>\n🔴 LM Studio недоступен.\nЗапустите LM Studio, включите локальный сервер и повторите.",
+    "just now": "только что",
+    "{n} min ago": "{n} мин назад",
+    "{n} h ago": "{n} ч назад",
+    "{n} d ago": "{n} дн назад",
+    "📦 <b>Models</b>": "📦 <b>Модели</b>",
+    "🟢 LM Studio · {loaded} loaded of {total}": "🟢 LM Studio · загружено {loaded} из {total}",
+    "▶ used by this chat · 🟢 loaded · ⚪ on disk": "▶ используется чатом · 🟢 загружена · ⚪ на диске",
+    "Tap a model to load, unload or use it.": "Нажмите на модель, чтобы загрузить, выгрузить или выбрать её.",
+    "💾 Size: {size}": "💾 Размер: {size}",
+    "{count} msg": "сообщ.: {count}",
+    "✉️ {count} message(s)": "✉️ Сообщений: {count}",
+    "🔗 This chat: {model}": "🔗 Этот чат: {model}",
+    "Page {page}/{pages}": "Страница {page}/{pages}",
+    "🟢 Loaded": "🟢 Загружена",
+    "⚪ Not loaded": "⚪ Не загружена",
+    "yes": "да",
+    "no": "нет",
+    "🔗 Used by this chat: {answer}": "🔗 Используется этим чатом: {answer}",
+    "  ▶ active": "  ▶ активный",
+    "🧠 Model: {model}": "🧠 Модель: {model}",
+    "🧠 Model: <i>any loaded model</i>": "🧠 Модель: <i>любая загруженная</i>",
+    "🕒 Last activity: {when}": "🕒 Последняя активность: {when}",
+    "📅 Created: {when}": "📅 Создан: {when}",
+    "🔄 Refresh": "🔄 Обновить",
+    "⬅ Back": "⬅ Назад",
+    "⬇ Unload": "⬇ Выгрузить",
+    "✏️ Rename": "✏️ Переименовать",
+    "🗑 Delete": "🗑 Удалить",
+    "⚙️ Staged load settings: {value}": "⚙️ Параметры загрузки в очереди: {value}",
+    "🔗 Use in chat": "🔗 Использовать в чате",
+    "⬆ Load": "⬆ Загрузить",
+    "✅ Open": "✅ Открыть",
+    "🔄 Retry": "🔄 Повторить",
+    # --- help topics ---
+    "📦 <b>Model Management Help</b>\n\nEvery model on disk is one button: ▶ used by this chat, 🟢 loaded, "
+    "⚪ not loaded.\nTap a model to open its card:\n• <b>Load</b> — loads it and uses it in this chat.\n"
+    "• <b>Unload</b> — frees memory.\n• <b>Use in chat</b> — binds an already loaded model to this chat.":
+        "📦 <b>Справка: управление моделями</b>\n\nКаждая модель на диске — это кнопка: ▶ используется "
+        "этим чатом, 🟢 загружена, ⚪ не загружена.\nНажмите на модель, чтобы открыть её карточку:\n"
+        "• <b>Загрузить</b> — загружает модель и подключает её к этому чату.\n"
+        "• <b>Выгрузить</b> — освобождает память.\n"
+        "• <b>Использовать в чате</b> — привязывает уже загруженную модель к этому чату.",
+    "🧠 <b>Sessions Help</b>\n\n• <b>Chats</b> — all chats with message count and last activity; tap one for "
+    "its card.\n• <b>Open / Rename / Delete</b> — actions on a chat card.\n• <b>New Chat</b> — creates a "
+    "chat (auto-named if no name given).":
+        "🧠 <b>Справка: чаты</b>\n\n• <b>Чаты</b> — все чаты с числом сообщений и временем последней "
+        "активности; нажмите на чат, чтобы открыть его карточку.\n"
+        "• <b>Открыть / Переименовать / Удалить</b> — действия на карточке чата.\n"
+        "• <b>Новый чат</b> — создаёт чат (имя подставится само, если не указать).",
+    "⚙️ <b>Settings Help</b>\n\n• <b>Current Settings</b> — a readable overview of this chat's settings.\n"
+    "• <b>Session Settings</b> — pick a mode (🎯 Precise / ⚖️ Balanced / 🎨 Creative) or tap a setting: "
+    "quick values, ➖/➕ steps, or type your own.\n• <b>Model Settings</b> — GPU, context length and "
+    "identifier, applied on the next load.\n• <b>Model / Session Presets</b> — preview a preset before "
+    "applying it; session presets can be saved from the current settings.\n• <b>History Reuse Policy</b> — "
+    "how much of the chat the model sees each turn.\n• <b>Language</b> — switch the interface language.":
+        "⚙️ <b>Справка: настройки</b>\n\n• <b>Текущие настройки</b> — понятный обзор настроек этого чата.\n"
+        "• <b>Настройки сессии</b> — выберите режим (🎯 Точный / ⚖️ Сбалансированный / 🎨 Творческий) "
+        "или нажмите на параметр: быстрые значения, шаги ➖/➕ или свой ввод.\n"
+        "• <b>Настройки модели</b> — GPU, длина контекста и идентификатор; применяются при следующей "
+        "загрузке.\n• <b>Пресеты моделей / сессий</b> — предпросмотр перед применением; пресеты сессий "
+        "можно сохранять из текущих настроек.\n• <b>История</b> — сколько переписки видит модель в "
+        "каждом ответе.\n• <b>Язык</b> — язык интерфейса.",
+    # --- main menu / settings menus ---
+    "🗑 Delete chat <b>{name}</b> and its {count} message(s)?\nThis cannot be undone.":
+        "🗑 Удалить чат <b>{name}</b> и его сообщения ({count})?\nЭто нельзя отменить.",
+    "🏠 <b>Main Menu</b>": "🏠 <b>Главное меню</b>",
+    "default": "по умолчанию",
+    "📋 <b>Current Settings</b>": "📋 <b>Текущие настройки</b>",
+    "<b>Model</b>": "<b>Модель</b>",
+    "💬 No chat yet — tap ➕ New Chat": "💬 Чата ещё нет — нажмите ➕ Новый чат",
+    "💬 Chat: <b>{name}</b> · {count} message(s)": "💬 Чат: <b>{name}</b> · сообщений: {count}",
+    "🌡 Temperature: <code>{value}</code>": "🌡 Температура: <code>{value}</code>",
+    "set": "задан",
+    "empty": "пусто",
+    "{count} set": "задано: {count}",
+    "none": "нет",
+    "on": "вкл",
+    "off": "выкл",
+    "<i>(No model loaded)</i>": "<i>(модель не загружена)</i>",
+    "🟢 LM Studio · {count} loaded": "🟢 LM Studio · загружено: {count}",
+    "🔴 LM Studio · offline": "🔴 LM Studio · недоступен",
+    "🧠 Model: <code>{model}</code>": "🧠 Модель: <code>{model}</code>",
+    "🧠 Model: <i>not loaded</i>": "🧠 Модель: <i>не загружена</i>",
+    "📝 System Prompt": "📝 Системный промпт",
+    "🌡 Temperature": "🌡 Температура",
+    "🔢 Max Tokens": "🔢 Макс. токенов",
+    "📊 Top-P": "📊 Top-P",
+    "🔝 Top-K": "🔝 Top-K",
+    "🔁 Repeat Penalty": "🔁 Штраф за повторы",
+    "🛑 Stop Strings": "🛑 Стоп-строки",
+    "🎲 Seed": "🎲 Seed",
+    "⬅ Cancel": "⬅ Отмена",
+    "➕ New Chat": "➕ Новый чат",
+    "🗂 Chats": "🗂 Чаты",
+    "📦 Models": "📦 Модели",
+    "⚙️ Settings": "⚙️ Настройки",
+    "🔄 Regenerate": "🔄 Заново",
+    "⏹ Stop": "⏹ Стоп",
+    "📊 Status": "📊 Статус",
+    "❓ Help": "❓ Помощь",
+    "🗂 List Chats": "🗂 Список чатов",
+    "✏️ Rename Chat": "✏️ Переименовать чат",
+    "🗑 Remove Chat": "🗑 Удалить чат",
+    "📋 Current Settings": "📋 Текущие настройки",
+    "🖥 Model Settings": "🖥 Настройки модели",
+    "💬 Session Settings": "💬 Настройки сессии",
+    "📦 Model Presets": "📦 Пресеты моделей",
+    "💾 Session Presets": "💾 Пресеты сессий",
+    "📜 History Reuse Policy": "📜 История переписки",
+    "🌐 Language": "🌐 Язык",
+    "🖥 GPU": "🖥 GPU",
+    "📏 Context Length": "📏 Длина контекста",
+    "🏷 Identifier": "🏷 Идентификатор",
+    "💭 Show reasoning: {state}": "💭 Показывать рассуждения: {state}",
+    "↺ Reset": "↺ Сброс",
+    "📦 Model Help": "📦 Модели",
+    "🧠 Sessions Help": "🧠 Чаты",
+    "⚙️ Settings Help": "⚙️ Настройки",
+    "⌨️ Commands": "⌨️ Команды",
+    # --- modes / history policy ---
+    "🎯 Precise": "🎯 Точный",
+    "⚖️ Balanced": "⚖️ Сбалансированный",
+    "🎨 Creative": "🎨 Творческий",
+    "🛠 Custom": "🛠 Свой",
+    "🚫 No history": "🚫 Без истории",
+    "Every message stands alone; the model remembers nothing.":
+        "Каждое сообщение само по себе; модель ничего не помнит.",
+    "📐 Fit to context": "📐 По размеру контекста",
+    "As many of the newest messages as fit the model's context window.":
+        "Столько последних сообщений, сколько помещается в контекстное окно модели.",
+    "🔢 Last N exchanges": "🔢 Последние N обменов",
+    "Only the last N question–answer pairs.": "Только последние N пар «вопрос–ответ».",
+    "📋 Full history": "📋 Вся история",
+    "Everything, as long as it fits the context window.": "Всё, пока помещается в контекстное окно.",
+    "📜 <b>History Reuse Policy</b>": "📜 <b>История переписки</b>",
+    "How much of the chat the model sees each turn.": "Сколько переписки модель видит в каждом ответе.",
+    "Current: {value}": "Сейчас: {value}",
+    "🎭 Mode: {mode}": "🎭 Режим: {mode}",
+    "📜 History: {policy}": "📜 История: {policy}",
+    "🖥 GPU: {value}": "🖥 GPU: {value}",
+    "📏 Context length: {value}": "📏 Длина контекста: {value}",
+    "🏷 Identifier: {value}": "🏷 Идентификатор: {value}",
+    "<i>Applied on the next model load.</i>": "<i>Применяется при следующей загрузке модели.</i>",
+    "unlimited": "без ограничений",
+    "random": "случайный",
+    "Current: <b>{title}</b>": "Сейчас: <b>{title}</b>",
+    "Default: {value}": "По умолчанию: {value}",
+    "Allowed: {hint}": "Допустимо: {hint}",
+    "Keeping the last {count} exchange(s).": "Сохраняются последние обмены: {count}.",
+    "✏️ Enter value": "✏️ Ввести значение",
+    "↺ Default": "↺ По умолчанию",
+    "✅ Apply": "✅ Применить",
+    "💾 Save current as preset": "💾 Сохранить текущие как пресет",
+    "model default": "по умолчанию модели",
+    "model name": "имя модели",
+    # --- typed input results ---
+    "✅ Created chat: {name}": "✅ Чат создан: {name}",
+    "✅ Chat renamed to: {name}": "✅ Чат переименован: {name}",
+    "✅ Model {key} staged to '{value}'. Will apply on the next model load.":
+        "✅ Параметр {key} = «{value}» отложен до следующей загрузки модели.",
+    "✅ Preset saved: {name}": "✅ Пресет сохранён: {name}",
+    "❌ Model identifier cannot be empty.": "❌ Идентификатор модели не может быть пустым.",
+    "✅ Model loaded successfully.\n{result}": "✅ Модель загружена.\n{result}",
+    "✅ Model unloaded.\n{result}": "✅ Модель выгружена.\n{result}",
+    "❌ No active chat. Create one first.": "❌ Нет активного чата. Сначала создайте чат.",
+    "❌ No active chat.": "❌ Нет активного чата.",
+    "❌ The name cannot be empty.": "❌ Имя не может быть пустым.",
+    "❌ The name must be {limit} characters or fewer.": "❌ Имя должно быть не длиннее {limit} символов.",
+    "✅ History policy set to last_n_pairs ({count} pairs)":
+        "✅ История: последние обмены ({count} пар)",
+    "❌ Load failed: {error}": "❌ Не удалось загрузить: {error}",
+    "❌ Unload failed: {error}": "❌ Не удалось выгрузить: {error}",
+    "❌ GPU must be 'auto', 'max', or a fraction 0.0–1.0.":
+        "❌ GPU: «auto», «max» или доля от 0.0 до 1.0.",
+    "❌ Unknown model setting: {key}": "❌ Неизвестный параметр модели: {key}",
+    "❌ Must be a positive integer.": "❌ Нужно целое положительное число.",
+    "❌ Context length must be an integer ≥ 512.": "❌ Длина контекста — целое число ≥ 512.",
+    # --- menu actions / banners ---
+    "🗂 Select a chat:": "🗂 Выберите чат:",
+    "🗑 Select a chat to remove:": "🗑 Выберите чат для удаления:",
+    "Enter GPU setting (auto, max, or 0.0–1.0):": "Введите GPU (auto, max или 0.0–1.0):",
+    "Enter context length (integer ≥ 512):": "Введите длину контекста (целое число ≥ 512):",
+    "Enter model identifier:": "Введите идентификатор модели:",
+    "⏳ Loading {name}…": "⏳ Загружаю {name}…",
+    "⏳ Unloading {name}…": "⏳ Выгружаю {name}…",
+    "✅ This chat now uses {name}": "✅ Этот чат теперь использует {name}",
+    "✅ Loaded {name} — this chat now uses it.": "✅ {name} загружена — этот чат теперь её использует.",
+    "✅ Unloaded {name}.": "✅ {name} выгружена.",
+    "✅ Switched to chat: {name}": "✅ Выбран чат: {name}",
+    "❌ Chat not found.": "❌ Чат не найден.",
+    "✅ Chat removed.": "✅ Чат удалён.",
+    "✅ Preset deleted.": "✅ Пресет удалён.",
+    "❌ Invalid preset.": "❌ Неверный пресет.",
+    "⌨️ Shortcut keyboard updated.": "⌨️ Клавиатура быстрых действий обновлена.",
+    "✅ New chat started: {name}": "✅ Новый чат: {name}",
+    "❌ Loading failed: {error}": "❌ Загрузка не удалась: {error}",
+    "❌ Unloading failed: {error}": "❌ Выгрузка не удалась: {error}",
+    "✅ Loaded {name}.": "✅ {name} загружена.",
+    "Enter a name for the new chat (or send empty for auto-name):":
+        "Введите имя нового чата (или отправьте пустое сообщение для автоимени):",
+    "Enter a new name for the current chat:": "Введите новое имя для текущего чата:",
+    "Enter a new name for this chat:": "Введите новое имя для этого чата:",
+    "✅ {title} reset to default.": "✅ {title}: сброшено на значение по умолчанию.",
+    "Enter a name for the preset (it saves this chat's current settings):":
+        "Введите имя пресета (в него сохранятся текущие настройки этого чата):",
+    "✅ Language: {name}": "✅ Язык: {name}",
+    "❌ Cancelled.": "❌ Отменено.",
+    "Nothing is being generated right now.": "Сейчас ничего не генерируется.",
+    "⌛ The earlier input request expired, so this was sent to the model.":
+        "⌛ Прошлый запрос на ввод устарел, поэтому сообщение отправлено модели.",
+    "❌ Cancel": "❌ Отмена",
+    "❌ Could not connect to LM Studio. Is it running?": "❌ Не удалось подключиться к LM Studio. Он запущен?",
+    "❌ Failed to load {name}: {error}": "❌ Не удалось загрузить {name}: {error}",
+    "❌ Failed to unload {name}: {error}": "❌ Не удалось выгрузить {name}: {error}",
+    "✅ Model preset '{name}' staged. Applies on the next model load.":
+        "✅ Пресет модели «{name}» отложен — применится при следующей загрузке.",
+    "✅ Session preset '{name}' applied.": "✅ Пресет сессии «{name}» применён.",
+    "❌ No active chat. Create one in Chats first.": "❌ Нет активного чата. Сначала создайте чат в «Чатах».",
+    "✅ Mode: {title}": "✅ Режим: {title}",
+    "Enter the number of message pairs to keep:": "Введите, сколько последних пар сообщений хранить:",
+    "✅ History: {policy}": "✅ История: {policy}",
+    "⚠️ The model list changed — pick again.": "⚠️ Список моделей изменился — выберите снова.",
+    "No chats to remove.": "Нет чатов для удаления.",
+    "No model presets found.": "Пресетов моделей не найдено.",
+    "✅ Generation settings reset to defaults.": "✅ Параметры генерации сброшены.",
+    "⚠️ Already at the limit.": "⚠️ Достигнут предел.",
+    "🌐 <b>Language</b>\nChoose the interface language.": "🌐 <b>Язык</b>\nВыберите язык интерфейса.",
+    "📦 <b>Model Presets</b>\n<i>Applied on the next model load.</i>":
+        "📦 <b>Пресеты моделей</b>\n<i>Применяются при следующей загрузке модели.</i>",
+    "🧠 <b>Chat Sessions</b>": "🧠 <b>Чаты</b>",
+    "🗂 {count} chat(s)": "🗂 Чатов: {count}",
+    "🗂 <b>Chats</b>\nNo chats yet — use ➕ New Chat": "🗂 <b>Чаты</b>\nЧатов пока нет — нажмите ➕ Новый чат",
+    "🗂 <b>Select a chat:</b>": "🗂 <b>Выберите чат:</b>",
+    "⚙️ <b>Settings</b>": "⚙️ <b>Настройки</b>",
+    "❓ <b>Help</b>": "❓ <b>Помощь</b>",
+    "🖥 <b>Model Settings</b>": "🖥 <b>Настройки модели</b>",
+    "💬 <b>Session Settings</b>": "💬 <b>Настройки сессии</b>",
+    "💾 <b>Session Presets</b>\nTap a preset to preview it.":
+        "💾 <b>Пресеты сессий</b>\nНажмите на пресет для предпросмотра.",
+    "💾 <b>Session Presets</b>\nNo session presets yet.": "💾 <b>Пресеты сессий</b>\nПресетов пока нет.",
+    "📋 <b>Current Settings</b>\n<i>No active chat.</i>": "📋 <b>Текущие настройки</b>\n<i>Нет активного чата.</i>",
+    "📦 <b>Models</b>\n<i>No models found in LM Studio.</i>":
+        "📦 <b>Модели</b>\n<i>В LM Studio не найдено моделей — скачайте их в самом LM Studio.</i>",
+    "💬 Active: <b>{name}</b>": "💬 Активный: <b>{name}</b>",
+    "Mode: {mode}": "Режим: {mode}",
+    "<i>Pick a mode, or tap a setting to fine-tune it.</i>":
+        "<i>Выберите режим или нажмите на параметр, чтобы настроить его.</i>",
+    "Menu expired — opening a fresh menu.": "Меню устарело — открываю новое.",
+    # --- model command texts ---
+    "Select a model to load:": "Выберите модель для загрузки:",
+    "No models found.": "Моделей не найдено.",
+    "No models are currently loaded.": "Сейчас нет загруженных моделей.",
+    "(showing 100 of {total}; {hidden} model(s) not shown)": "(показано 100 из {total}; скрыто моделей: {hidden})",
+    "Select a model to load (page {page}/{pages}):": "Выберите модель для загрузки (стр. {page}/{pages}):",
+    "📦 Available models:": "📦 Доступные модели:",
+    "🧠 Loaded models:": "🧠 Загруженные модели:",
+    "No models available to load.": "Нет моделей для загрузки.",
+    "Select a model to unload:": "Выберите модель для выгрузки:",
+    "✅ Model {name} loaded successfully.": "✅ Модель {name} загружена.",
+    "✅ Model {name} unloaded.": "✅ Модель {name} выгружена.",
+    "❌ Invalid gpu value: must be max, auto, or a float between 0.0 and 1.0":
+        "❌ Неверное значение gpu: max, auto или число от 0.0 до 1.0",
+    "❌ Context length must be >= 512": "❌ Длина контекста должна быть ≥ 512",
+    "❌ Invalid context length value": "❌ Неверное значение длины контекста",
+    # --- quick keyboard, /set ---
+    "📋 Menu": "📋 Меню",
+    "➕ New chat": "➕ Новый чат",
+    "❌ Usage: /set <setting> <value>\nValid settings: {names}":
+        "❌ Использование: /set <параметр> <значение>\nДоступные параметры: {names}",
+    "❌ Unknown setting: {name}. Valid: {names}": "❌ Неизвестный параметр: {name}. Доступны: {names}",
+    # --- setting specs ---
+    "System Prompt": "Системный промпт",
+    "Instructions the model follows in every reply of this chat.":
+        "Инструкции, которым модель следует в каждом ответе этого чата.",
+    "Enter the system prompt (or send empty to clear):":
+        "Введите системный промпт (или отправьте пустое сообщение, чтобы очистить):",
+    "❌ Temperature must be a number between 0.0 and 2.0.": "❌ Температура — число от 0.0 до 2.0.",
+    "Temperature": "Температура",
+    "Lower = precise and repeatable, higher = more creative.":
+        "Ниже — точнее и предсказуемее, выше — креативнее.",
+    "Enter temperature (0.0–2.0):": "Введите температуру (0.0–2.0):",
+    "❌ Max tokens must be an integer ≥ -1 (use -1 for unlimited).":
+        "❌ Макс. токенов — целое число ≥ -1 (-1 — без ограничений).",
+    "Max Tokens": "Макс. токенов",
+    "Upper limit for the length of one reply.": "Верхний предел длины одного ответа.",
+    "integer ≥ 1, or -1 for unlimited": "целое ≥ 1 или -1 (без ограничений)",
+    "Enter max tokens (integer ≥ -1, use -1 for unlimited):":
+        "Введите макс. токенов (целое ≥ -1, -1 — без ограничений):",
+    "❌ Top-P must be a number between 0.0 and 1.0.": "❌ Top-P — число от 0.0 до 1.0.",
+    "Top-P": "Top-P",
+    "Only the most probable words that add up to this share are considered.":
+        "Учитываются только самые вероятные слова, набирающие эту долю вероятности.",
+    "Enter top-p (0.0–1.0):": "Введите top-p (0.0–1.0):",
+    "❌ Top-K must be an integer ≥ 1, or 'none' to clear.": "❌ Top-K — целое ≥ 1 или «none» для сброса.",
+    "✅ Top-K cleared": "✅ Top-K сброшен",
+    "Top-K": "Top-K",
+    "Only this many most probable words are considered at each step.":
+        "На каждом шаге учитывается только столько самых вероятных слов.",
+    "integer ≥ 1, or default": "целое ≥ 1 или по умолчанию",
+    "Enter top-k (integer ≥ 1, or 'none' to clear):": "Введите top-k (целое ≥ 1 или «none» для сброса):",
+    "❌ Repeat penalty must be a number > 0, or 'none' to clear.":
+        "❌ Штраф за повторы — число > 0 или «none» для сброса.",
+    "✅ Repeat penalty cleared": "✅ Штраф за повторы сброшен",
+    "Repeat Penalty": "Штраф за повторы",
+    "Values above 1.0 discourage the model from repeating itself.":
+        "Значения выше 1.0 отучают модель повторяться.",
+    "number > 0 (typical 1.0 – 1.3), or default": "число > 0 (обычно 1.0 – 1.3) или по умолчанию",
+    "Enter repeat penalty (> 0, or 'none' to clear):": "Введите штраф за повторы (> 0 или «none» для сброса):",
+    "✅ Stop strings cleared": "✅ Стоп-строки очищены",
+    "Stop Strings": "Стоп-строки",
+    "Generation stops as soon as the model writes one of these.":
+        "Генерация останавливается, как только модель напишет одну из них.",
+    "comma-separated, up to 4": "через запятую, до 4",
+    "Enter stop strings (comma-separated, or 'none' to clear):":
+        "Введите стоп-строки (через запятую или «none» для очистки):",
+    "❌ Seed must be an integer ≥ 0, or 'none' for random.": "❌ Seed — целое ≥ 0 или «none» для случайного.",
+    "✅ Seed cleared (random)": "✅ Seed сброшен (случайный)",
+    "Seed": "Seed",
+    "A fixed seed makes replies reproducible.": "Фиксированный seed делает ответы воспроизводимыми.",
+    "integer ≥ 0, or random": "целое ≥ 0 или случайный",
+    "Enter seed (integer ≥ 0, or 'none' for random):": "Введите seed (целое ≥ 0 или «none» для случайного):",
+    "✅ Temperature set to {value}": "✅ Температура: {value}",
+    "✅ Max tokens set to {value}": "✅ Макс. токенов: {value}",
+    "✅ Top-P set to {value}": "✅ Top-P: {value}",
+    "✅ Top-K set to {value}": "✅ Top-K: {value}",
+    "✅ Repeat penalty set to {value}": "✅ Штраф за повторы: {value}",
+    "✅ Stop strings set to {value}": "✅ Стоп-строки: {value}",
+    "✅ Seed set to {value}": "✅ Seed: {value}",
+    "✅ System prompt updated.": "✅ Системный промпт обновлён.",
+    "✅ System prompt cleared.": "✅ Системный промпт очищен.",
+    "🤖 Assistant": "🤖 Ассистент",
+    "✂️ Concise": "✂️ Кратко",
+    "💻 Coder": "💻 Программист",
+    "🌐 Translator": "🌐 Переводчик",
+    "Default": "По умолч.",
+    "Random": "Случайный",
+    # --- generation / errors ---
+    "❌ The loaded model does not support image input.":
+        "❌ Загруженная модель не поддерживает изображения.",
+    "❌ Nothing to regenerate (no messages in this chat).":
+        "❌ Нечего перегенерировать (в этом чате нет сообщений).",
+    "⏳ A reply is already being generated. Send /stop to cancel it.":
+        "⏳ Ответ уже генерируется. Отправьте /stop, чтобы отменить.",
+    "❌ No response from model.": "❌ Модель не ответила.",
+    "⏹ Stopped.": "⏹ Остановлено.",
+    "⚠️ The connection to LM Studio dropped — the reply above is incomplete.":
+        "⚠️ Соединение с LM Studio оборвалось — ответ выше неполный.",
+    "❌ Generation failed: {error}": "❌ Генерация не удалась: {error}",
+    "❌ No model is loaded. Load one from the menu or with /load.":
+        "❌ Модель не загружена. Загрузите её в меню или командой /load.",
+    "❌ LM Studio is unreachable. Is it running?": "❌ LM Studio недоступен. Он запущен?",
+    "❌ Telegram error: {error}": "❌ Ошибка Telegram: {error}",
+    "⏳ Processing image...": "⏳ Обрабатываю изображение...",
+    "Nothing to retry.": "Нечего повторять.",
+    "⏳ Regenerating...": "⏳ Генерирую заново...",
+    "▶ Continue": "▶ Продолжить",
+    "📦 Load a model": "📦 Загрузить модель",
+    "🔁 Retry": "🔁 Повторить",
+    # --- status ---
+    "📊 <b>Status</b>": "📊 <b>Статус</b>",
+    "🔴 LM Studio: unreachable ({endpoint})": "🔴 LM Studio: недоступен ({endpoint})",
+    "Start LM Studio and enable its local server.": "Запустите LM Studio и включите локальный сервер.",
+    "🟢 LM Studio: online ({endpoint})": "🟢 LM Studio: работает ({endpoint})",
+    "<i>none</i>": "<i>нет</i>",
+    "🧠 Loaded: {models}": "🧠 Загружено: {models}",
+    "💬 Chat: <i>none yet</i>": "💬 Чат: <i>пока нет</i>",
+    "🔗 Model: {model}": "🔗 Модель: {model}",
+    "📜 History policy: {policy}": "📜 История: {policy}",
+    "📏 Context window: {length} tokens": "📏 Контекстное окно: {length} токенов",
+    "<i>any loaded model</i>": "<i>любая загруженная</i>",
+}

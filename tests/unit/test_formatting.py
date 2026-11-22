@@ -165,14 +165,23 @@ class TestMenuTextsAreValidHtml:
     def test_all_static_texts_parse(self):
         import html.parser
 
-        from src.bot.handlers.help import HELP_TEXT
-        from src.bot.handlers.menu.keyboards import HELP_MODELS, HELP_SESSIONS, HELP_SETTINGS
+        from src.bot import i18n
+        from src.bot.commands import render_help
+        from src.bot.handlers.help import render_welcome
+        from src.bot.handlers.menu.keyboards import (
+            help_models_text,
+            help_sessions_text,
+            help_settings_text,
+        )
 
-        for text in (HELP_TEXT, HELP_MODELS, HELP_SESSIONS, HELP_SETTINGS):
-            parser = html.parser.HTMLParser()
-            parser.feed(text)
-            assert "*" not in text.replace("* ", "")  # no leftover Markdown markers
-            assert "`" not in text
+        for language in i18n.LANGUAGES:
+            i18n.set_language(language)
+            for text in (render_help(), help_models_text(), help_sessions_text(),
+                         help_settings_text(), render_welcome("status", True)):
+                parser = html.parser.HTMLParser()
+                parser.feed(text)
+                assert "*" not in text.replace("* ", "")  # no leftover Markdown markers
+                assert "`" not in text
 
     def test_current_settings_escapes_user_input(self):
         from types import SimpleNamespace

@@ -169,7 +169,7 @@ async def test_invalid_value_keeps_waiting_without_refresh(store, context, query
 # --- bottom keyboard ---------------------------------------------------------------
 
 def test_quickbar_has_four_shortcuts():
-    labels = [b.text for row in quickbar.QUICKBAR_KEYBOARD.keyboard for b in row]
+    labels = [b.text for row in quickbar.quickbar_keyboard().keyboard for b in row]
     assert labels == [quickbar.BTN_MENU, quickbar.BTN_STOP, quickbar.BTN_NEW_CHAT,
                       quickbar.BTN_STATUS]
 

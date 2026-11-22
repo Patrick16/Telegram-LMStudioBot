@@ -3,6 +3,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from src.bot.i18n import tr
 from src.bot.auth import require_owner
 from src.bot.ephemeral import reply_ephemeral
 from src.bot.handlers.settings_spec import SETTING_SPECS, apply_text
@@ -23,7 +24,7 @@ async def setprompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
-        await _cmd_reply(update.effective_message, "❌ No active chat. Use /newchat first.")
+        await _cmd_reply(update.effective_message, tr("❌ No active chat. Use /newchat first."))
         return
 
     prompt_text = " ".join(context.args) if context.args else ""
@@ -39,7 +40,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
-        await _cmd_reply(update.effective_message, "❌ No active chat. Use /newchat first.")
+        await _cmd_reply(update.effective_message, tr("❌ No active chat. Use /newchat first."))
         return
 
     valid_names = ", ".join(SET_COMMAND_NAMES)
@@ -47,7 +48,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not args or len(args) < 2:
         await _cmd_reply(
             update.effective_message,
-            f"❌ Usage: /set <setting> <value>\nValid settings: {valid_names}",
+            tr("❌ Usage: /set <setting> <value>\nValid settings: {names}", names=valid_names),
         )
         return
 
@@ -55,7 +56,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     spec = SETTING_SPECS.get(name) if name in SET_COMMAND_NAMES else None
     if spec is None:
         await _cmd_reply(
-            update.effective_message, f"❌ Unknown setting: {name}. Valid: {valid_names}"
+            update.effective_message,
+            tr("❌ Unknown setting: {name}. Valid: {names}", name=name, names=valid_names),
         )
         return
 

@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 
+from src.bot import i18n
+from src.bot.i18n import tr
 from src.bot.handlers.menu.cards import (
     ModelEntry,
     build_chat_card_keyboard,
@@ -76,6 +78,7 @@ SCREEN_PARAM = "settings:param"
 SCREEN_MODEL_PRESETS = "settings:model_presets"
 SCREEN_SESSION_PRESETS = "settings:session_presets"
 SCREEN_PRESET_CARD = "settings:preset"
+SCREEN_LANGUAGE = "settings:language"
 
 
 @dataclass(frozen=True)
@@ -153,8 +156,8 @@ async def _models(context) -> Screen:
         return Screen(text, markup)
     if not entries:
         return Screen(
-            "📦 <b>Models</b>\n<i>No models found in LM Studio.</i>",
-            InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Back", callback_data=SCREEN_MAIN)]]),
+            tr("📦 <b>Models</b>\n<i>No models found in LM Studio.</i>"),
+            InlineKeyboardMarkup([[InlineKeyboardButton(tr("⬅ Back"), callback_data=SCREEN_MAIN)]]),
         )
     bound = _bound_model(context)
     markup, page, pages = build_models_keyboard(
@@ -179,9 +182,13 @@ async def _model_card(context) -> Screen:
 async def _sessions(context) -> Screen:
     store = context.bot_data["store"]
     session = store.get_active_session()
-    lines = ["🧠 <b>Chat Sessions</b>", f"🗂 {len(store.list_sessions())} chat(s)"]
+    lines = [
+        tr("🧠 <b>Chat Sessions</b>"),
+        tr("🗂 {count} chat(s)", count=len(store.list_sessions())),
+    ]
     if session is not None:
-        lines.append(f"💬 Active: <b>{html.escape(session.name, quote=False)}</b>")
+        name = html.escape(session.name, quote=False)
+        lines.append(tr("💬 Active: <b>{name}</b>", name=name))
     return Screen("\n".join(lines), build_sessions_menu())
 
 
@@ -189,11 +196,11 @@ async def _chats(context) -> Screen:
     store = context.bot_data["store"]
     sessions = store.list_sessions()
     footer = [
-        InlineKeyboardButton("➕ New Chat", callback_data="sessions:new"),
-        InlineKeyboardButton("⬅ Back", callback_data=SCREEN_MAIN),
+        InlineKeyboardButton(tr("➕ New Chat"), callback_data="sessions:new"),
+        InlineKeyboardButton(tr("⬅ Back"), callback_data=SCREEN_MAIN),
     ]
     if not sessions:
-        text = "🗂 <b>Chats</b>\nNo chats yet — use ➕ New Chat"
+        text = tr("🗂 <b>Chats</b>\nNo chats yet — use ➕ New Chat")
         return Screen(text, InlineKeyboardMarkup([footer]))
     shown, page, pages = paginate(sessions, context.chat_data.get("chats_page", 0))
     context.chat_data["chats_page"] = page
@@ -209,7 +216,7 @@ async def _chats(context) -> Screen:
     if navigation:
         rows.append(navigation)
     rows.append(footer)
-    return Screen("🗂 <b>Select a chat:</b>", InlineKeyboardMarkup(rows))
+    return Screen(tr("🗂 <b>Select a chat:</b>"), InlineKeyboardMarkup(rows))
 
 
 async def _chat_card(context) -> Screen:
@@ -223,11 +230,11 @@ async def _chat_card(context) -> Screen:
 
 
 async def _settings(context) -> Screen:
-    return Screen("⚙️ <b>Settings</b>", build_settings_menu())
+    return Screen(tr("⚙️ <b>Settings</b>"), build_settings_menu())
 
 
 async def _help(context) -> Screen:
-    return Screen("❓ <b>Help</b>", build_help_menu())
+    return Screen(tr("❓ <b>Help</b>"), build_help_menu())
 
 
 async def _status(context) -> Screen:
@@ -235,16 +242,16 @@ async def _status(context) -> Screen:
 
 
 async def _model_settings(context) -> Screen:
-    return Screen("🖥 <b>Model Settings</b>", build_model_settings_menu())
+    return Screen(tr("🖥 <b>Model Settings</b>"), build_model_settings_menu())
 
 
 async def _session_settings(context) -> Screen:
     session = _active_session(context)
     settings = session.settings if session is not None else None
-    lines = ["💬 <b>Session Settings</b>"]
+    lines = [tr("💬 <b>Session Settings</b>")]
     if settings is not None:
-        lines.append(f"Mode: {mode_title(settings)}")
-        lines.append("<i>Pick a mode, or tap a setting to fine-tune it.</i>")
+        lines.append(tr("Mode: {mode}", mode=mode_title(settings)))
+        lines.append(tr("<i>Pick a mode, or tap a setting to fine-tune it.</i>"))
     return Screen("\n".join(lines), build_session_settings_menu(settings))
 
 
@@ -265,18 +272,28 @@ async def _history_policy(context) -> Screen:
     return Screen(render_history_policy_text(settings), build_history_policy_menu(current))
 
 
+async def _language(context) -> Screen:
+    active = i18n.get_language()
+    rows = [[InlineKeyboardButton(
+        ("✅ " if code == active else "") + name, callback_data=f"settings:language:{code}"
+    )] for code, name in i18n.LANGUAGES.items()]
+    rows.append([InlineKeyboardButton(tr("⬅ Back"), callback_data=SCREEN_SETTINGS)])
+    text = tr("🌐 <b>Language</b>\nChoose the interface language.")
+    return Screen(text, InlineKeyboardMarkup(rows))
+
+
 async def _model_presets(context) -> Screen:
     presets = context.bot_data["store"].load_model_presets()
-    text = "📦 <b>Model Presets</b>\n<i>Applied on the next model load.</i>"
+    text = tr("📦 <b>Model Presets</b>\n<i>Applied on the next model load.</i>")
     return Screen(text, build_presets_keyboard("model", presets, can_save=False))
 
 
 async def _session_presets(context) -> Screen:
     presets = context.bot_data["store"].load_session_presets()
     if presets.presets:
-        text = "💾 <b>Session Presets</b>\nTap a preset to preview it."
+        text = tr("💾 <b>Session Presets</b>\nTap a preset to preview it.")
     else:
-        text = "💾 <b>Session Presets</b>\nNo session presets yet."
+        text = tr("💾 <b>Session Presets</b>\nNo session presets yet.")
     return Screen(text, build_presets_keyboard("session", presets, can_save=True))
 
 
@@ -298,7 +315,7 @@ async def _preset_card(context) -> Screen:
 async def _current_settings(context) -> Screen:
     session = _active_session(context)
     if session is None:
-        empty = "📋 <b>Current Settings</b>\n<i>No active chat.</i>"
+        empty = tr("📋 <b>Current Settings</b>\n<i>No active chat.</i>")
         return Screen(empty, build_back_button(SCREEN_SETTINGS))
     text = render_current_settings(session, session.model_identifier)
     return Screen(text, build_back_button(SCREEN_SETTINGS))
@@ -321,6 +338,7 @@ SCREENS: dict[str, Callable[..., Awaitable[Screen]]] = {
     SCREEN_SESSION_PRESETS: _session_presets,
     SCREEN_PRESET_CARD: _preset_card,
     SCREEN_HISTORY_POLICY: _history_policy,
+    SCREEN_LANGUAGE: _language,
     SCREEN_CURRENT_SETTINGS: _current_settings,
 }
 
@@ -351,7 +369,7 @@ async def show_screen(query, context, key: str, banner: str | None = None) -> No
         if "message is not modified" in str(e).lower():
             return
         logger.info("Stale menu detected, sending fresh menu: %s", e)
-        await query.answer("Menu expired — opening a fresh menu.")
+        await query.answer(tr("Menu expired — opening a fresh menu."))
         context.chat_data["menu_message_id"] = None
         main = await render_screen(context, SCREEN_MAIN, banner)
         msg = await query.message.chat.send_message(
