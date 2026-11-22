@@ -14,17 +14,18 @@ from src.bot.services.inference import CB_STOP
 
 HELP_MODELS = (
     "📦 <b>Model Management Help</b>\n\n"
-    "• <b>List Models</b> — Shows all models available on disk in LM Studio.\n"
-    "• <b>Loaded Models</b> — Shows models currently loaded into memory.\n"
-    "• <b>Load Model</b> — Loads a model by its identifier (e.g. <code>qwen/qwen3-4b</code>).\n"
-    "• <b>Unload Model</b> — Unloads a model by its identifier to free memory."
+    "Every model on disk is one button: ▶ used by this chat, 🟢 loaded, ⚪ not loaded.\n"
+    "Tap a model to open its card:\n"
+    "• <b>Load</b> — loads it and uses it in this chat.\n"
+    "• <b>Unload</b> — frees memory.\n"
+    "• <b>Use in chat</b> — binds an already loaded model to this chat."
 )
 
 HELP_SESSIONS = (
     "🧠 <b>Sessions Help</b>\n\n"
-    "• <b>New Chat</b> — Creates a new chat session (auto-named if no name given).\n"
-    "• <b>List Chats</b> — Shows all sessions; tap one to switch to it.\n"
-    "• <b>Remove Chat</b> — Shows all sessions; tap one to delete it."
+    "• <b>Chats</b> — all chats with message count and last activity; tap one for its card.\n"
+    "• <b>Open / Rename / Delete</b> — actions on a chat card.\n"
+    "• <b>New Chat</b> — creates a chat (auto-named if no name given)."
 )
 
 HELP_SETTINGS = (
@@ -85,10 +86,12 @@ def render_delete_confirmation(session, message_count: int) -> str:
     )
 
 
-def build_delete_confirmation_keyboard(session_id: str) -> InlineKeyboardMarkup:
+def build_delete_confirmation_keyboard(
+    session_id: str, cancel: str | None = None
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗑 Delete", callback_data=f"sessions:confirm_remove:{session_id}")],
-        [InlineKeyboardButton("⬅ Cancel", callback_data="sessions:remove")],
+        [InlineKeyboardButton("⬅ Cancel", callback_data=cancel or "sessions:remove")],
     ])
 
 
@@ -118,21 +121,6 @@ def build_back_button(target: str) -> InlineKeyboardMarkup:
     """Build a single-row keyboard with a Back button pointing to *target*."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⬅ Back", callback_data=target)],
-    ])
-
-
-def build_models_menu() -> InlineKeyboardMarkup:
-    """Model Management sub-menu."""
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📦 List Models", callback_data="models:list"),
-            InlineKeyboardButton("🧠 Loaded Models", callback_data="models:loaded"),
-        ],
-        [
-            InlineKeyboardButton("⬆ Load Model", callback_data="models:load"),
-            InlineKeyboardButton("⬇ Unload Model", callback_data="models:unload"),
-        ],
-        [InlineKeyboardButton("⬅ Back", callback_data="menu:main")],
     ])
 
 

@@ -23,7 +23,6 @@ from src.bot.handlers.menu import (
     build_history_policy_menu,
     build_main_menu,
     build_model_settings_menu,
-    build_models_menu,
     build_session_settings_menu,
     build_sessions_list_keyboard,
     build_sessions_menu,
@@ -151,21 +150,6 @@ class TestBuildBackButton:
     def test_callback_data(self):
         kb = build_back_button("menu:help")
         assert kb.inline_keyboard[0][0].callback_data == "menu:help"
-
-
-class TestBuildModelsMenu:
-    def test_has_back_button(self):
-        kb = build_models_menu()
-        last_row = kb.inline_keyboard[-1]
-        assert last_row[0].callback_data == "menu:main"
-
-    def test_action_buttons(self):
-        kb = build_models_menu()
-        data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        assert "models:list" in data
-        assert "models:loaded" in data
-        assert "models:load" in data
-        assert "models:unload" in data
 
 
 class TestBuildSessionsMenu:
@@ -354,7 +338,7 @@ class TestShowSection:
         await show_screen(query, context, "menu:models")
         query.edit_message_text.assert_called_once()
         call_kwargs = query.edit_message_text.call_args[1]
-        assert "Model Management" in call_kwargs["text"]
+        assert "Models" in call_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_stale_message_recovery(self, query, context):
@@ -453,49 +437,6 @@ class TestMenuCallbackHandler:
 # ---------------------------------------------------------------------------
 # Model actions tests (T017)
 # ---------------------------------------------------------------------------
-
-class TestModelsAction:
-    @pytest.mark.asyncio
-    @patch("src.lms.sdk.list_downloaded_models", new_callable=AsyncMock)
-    async def test_list_models(self, mock_list, query, context):
-        mock_list.return_value = [make_downloaded_model("model1", 1024 * 1024 * 1024)]
-        await _handle_models_action(query, context, "models:list")
-        query.message.reply_text.assert_called_once()
-        reply = query.message.reply_text.call_args.args[0]
-        assert "• model1  1.0 GB" in reply
-        assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
-
-    @pytest.mark.asyncio
-    @patch("src.lms.sdk.list_downloaded_models", new_callable=AsyncMock)
-    async def test_list_models_error(self, mock_list, query, context):
-        mock_list.side_effect = RuntimeError("Connection refused")
-        await _handle_models_action(query, context, "models:list")
-        reply = query.message.reply_text.call_args[0][0]
-        assert "Could not list" in reply
-
-    @pytest.mark.asyncio
-    @patch("src.lms.sdk.list_loaded_models", new_callable=AsyncMock)
-    async def test_loaded_models(self, mock_loaded, query, context):
-        mock_loaded.return_value = [make_loaded_handle("id1", 1024 * 1024 * 1024)]
-        await _handle_models_action(query, context, "models:loaded")
-        reply = query.message.reply_text.call_args.args[0]
-        assert "• id1  1.0 GB" in reply
-        assert query.message.reply_text.call_args.kwargs["parse_mode"] == "HTML"
-
-    @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.router._send_load_keyboard", new_callable=AsyncMock)
-    async def test_load_shows_keyboard(self, mock_send_load, query, context):
-        await _handle_models_action(query, context, "models:load")
-        assert context.chat_data.get("pending_input") is None
-        mock_send_load.assert_awaited_once_with(query.message, context)
-
-    @pytest.mark.asyncio
-    @patch("src.bot.handlers.menu.router._send_unload_keyboard", new_callable=AsyncMock)
-    async def test_unload_shows_keyboard(self, mock_send_unload, query, context):
-        await _handle_models_action(query, context, "models:unload")
-        assert context.chat_data.get("pending_input") is None
-        mock_send_unload.assert_awaited_once_with(query.message, context)
-
 
 class TestModelButtonCallbacks:
     @pytest.mark.asyncio

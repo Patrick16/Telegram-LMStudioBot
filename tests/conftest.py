@@ -52,3 +52,6 @@ def _lms_offline_by_default(monkeypatch):
     monkeypatch.setattr(
         "src.lms.sdk.list_loaded_models", AsyncMock(side_effect=ConnectionError("offline"))
     )
+    monkeypatch.setattr(
+        "src.lms.sdk.list_downloaded_models", AsyncMock(side_effect=ConnectionError("offline"))
+    )

@@ -33,6 +33,10 @@ MSG_STOPPED = "⏹ Stopped."
 CB_STOP = "gen:stop"
 CB_REGENERATE = "gen:regen"
 CB_RETRY = "gen:retry"
+CB_CONTINUE = "gen:continue"
+CB_NEW_CHAT = "gen:newchat"
+CB_MENU = "gen:menu"
+CONTINUE_PROMPT = "Continue."
 
 STREAM_EDIT_INTERVAL = 1.5  # seconds between live edits (Telegram rate limits apply)
 TYPING_INTERVAL = 4.0       # a chat action lasts ~5s
@@ -45,9 +49,16 @@ def generating_keyboard() -> InlineKeyboardMarkup:
 
 def reply_keyboard() -> InlineKeyboardMarkup:
     """Shown under a finished reply."""
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔄 Regenerate", callback_data=CB_REGENERATE)]]
-    )
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Regenerate", callback_data=CB_REGENERATE),
+            InlineKeyboardButton("▶ Continue", callback_data=CB_CONTINUE),
+        ],
+        [
+            InlineKeyboardButton("➕ New chat", callback_data=CB_NEW_CHAT),
+            InlineKeyboardButton("📋 Menu", callback_data=CB_MENU),
+        ],
+    ])
 
 
 def error_keyboard(exc: BaseException | None, retry_callback: str | None):

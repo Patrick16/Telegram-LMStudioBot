@@ -9,7 +9,6 @@ from src.bot.handlers.menu.keyboards import (  # noqa: F401
     build_history_policy_menu,
     build_main_menu,
     build_model_settings_menu,
-    build_models_menu,
     build_session_settings_menu,
     build_sessions_list_keyboard,
     build_sessions_menu,

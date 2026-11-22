@@ -13,9 +13,20 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from telegram import InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 
+from src.bot.handlers.menu.cards import (
+    ModelEntry,
+    build_chat_card_keyboard,
+    build_model_card_keyboard,
+    build_models_keyboard,
+    build_models_unreachable,
+    chat_row_label,
+    render_chat_card,
+    render_model_card,
+    render_models_text,
+)
 from src.bot.handlers.menu.keyboards import (
     LmsState,
     build_back_button,
@@ -23,13 +34,13 @@ from src.bot.handlers.menu.keyboards import (
     build_history_policy_menu,
     build_main_menu,
     build_model_settings_menu,
-    build_models_menu,
     build_session_settings_menu,
     build_sessions_menu,
     build_settings_menu,
     render_current_settings,
     render_main_menu_text,
 )
+from src.bot.pagination import nav_row, paginate
 from src.bot.services.status import build_status_text
 from src.lms import sdk
 
@@ -47,6 +58,9 @@ SCREEN_MODEL_SETTINGS = "settings:model_menu"
 SCREEN_SESSION_SETTINGS = "settings:session_menu"
 SCREEN_HISTORY_POLICY = "settings:history_policy"
 SCREEN_CURRENT_SETTINGS = "settings:current"
+SCREEN_MODEL_CARD = "models:card"
+SCREEN_CHATS = "sessions:list"
+SCREEN_CHAT_CARD = "sessions:card"
 
 
 @dataclass(frozen=True)
@@ -88,13 +102,63 @@ async def _main(context) -> Screen:
     return Screen(text, build_main_menu())
 
 
-async def _models(context) -> Screen:
+async def fetch_models(context) -> list[ModelEntry] | None:
+    """Downloaded models flagged with their loaded state; ``None`` when LM Studio is down."""
+    config = context.bot_data["config"]
+    try:
+        models, handles = await asyncio.wait_for(
+            asyncio.gather(
+                sdk.list_downloaded_models(config.LMS_HOST, config.LMS_PORT),
+                sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT),
+            ),
+            LMS_PROBE_TIMEOUT * 2,
+        )
+    except Exception:
+        context.chat_data["models_cache"] = None
+        return None
+    loaded = {getattr(h, "identifier", None) for h in handles}
+    entries = []
+    for model in models:
+        key = str(getattr(model, "model_key", "unknown"))
+        size = getattr(getattr(model, "info", None), "size_bytes", 0) or 0
+        entries.append(ModelEntry(key=key, size_bytes=int(size), loaded=key in loaded))
+    context.chat_data["models_cache"] = entries
+    return entries
+
+
+def _bound_model(context) -> str | None:
     session = _active_session(context)
-    lines = ["📦 <b>Model Management</b>"]
-    if session is not None:
-        bound = session.model_identifier
-        lines.append("🔗 This chat: " + (_code(bound) if bound else "<i>any loaded model</i>"))
-    return Screen("\n".join(lines), build_models_menu())
+    return session.model_identifier if session is not None else None
+
+
+async def _models(context) -> Screen:
+    entries = await fetch_models(context)
+    if entries is None:
+        text, markup = build_models_unreachable()
+        return Screen(text, markup)
+    if not entries:
+        return Screen(
+            "📦 <b>Models</b>\n<i>No models found in LM Studio.</i>",
+            InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Back", callback_data=SCREEN_MAIN)]]),
+        )
+    bound = _bound_model(context)
+    markup, page, pages = build_models_keyboard(
+        entries, context.chat_data.get("models_page", 0), bound
+    )
+    context.chat_data["models_page"] = page
+    return Screen(render_models_text(entries, bound, page, pages), markup)
+
+
+async def _model_card(context) -> Screen:
+    key = context.chat_data.get("model_card_key")
+    entries = await fetch_models(context)
+    entry = next((e for e in entries or [] if e.key == key), None)
+    if entry is None:
+        return await _models(context)
+    bound = _bound_model(context)
+    text = render_model_card(entry, bound, context.chat_data.get("staged_model_settings"))
+    markup = build_model_card_keyboard(entry, bound, _active_session(context) is not None)
+    return Screen(text, markup)
 
 
 async def _sessions(context) -> Screen:
@@ -104,6 +168,43 @@ async def _sessions(context) -> Screen:
     if session is not None:
         lines.append(f"💬 Active: <b>{html.escape(session.name, quote=False)}</b>")
     return Screen("\n".join(lines), build_sessions_menu())
+
+
+async def _chats(context) -> Screen:
+    store = context.bot_data["store"]
+    sessions = store.list_sessions()
+    footer = [
+        InlineKeyboardButton("➕ New Chat", callback_data="sessions:new"),
+        InlineKeyboardButton("⬅ Back", callback_data=SCREEN_MAIN),
+    ]
+    if not sessions:
+        text = "🗂 <b>Chats</b>\nNo chats yet — use ➕ New Chat"
+        return Screen(text, InlineKeyboardMarkup([footer]))
+    shown, page, pages = paginate(sessions, context.chat_data.get("chats_page", 0))
+    context.chat_data["chats_page"] = page
+    active_id = store.store.active_session_id
+    rows = [
+        [InlineKeyboardButton(
+            chat_row_label(s, len(store.load_history(s.id)), s.id == active_id),
+            callback_data=f"sessions:card:{s.id}",
+        )]
+        for s in shown
+    ]
+    navigation = nav_row("sessions:page:card:", page, pages)
+    if navigation:
+        rows.append(navigation)
+    rows.append(footer)
+    return Screen("🗂 <b>Select a chat:</b>", InlineKeyboardMarkup(rows))
+
+
+async def _chat_card(context) -> Screen:
+    store = context.bot_data["store"]
+    session = store.store.sessions.get(context.chat_data.get("chat_card_id"))
+    if session is None:
+        return await _chats(context)
+    active = session.id == store.store.active_session_id
+    text = render_chat_card(session, len(store.load_history(session.id)), active)
+    return Screen(text, build_chat_card_keyboard(session.id, active))
 
 
 async def _settings(context) -> Screen:
@@ -147,7 +248,10 @@ async def _current_settings(context) -> Screen:
 SCREENS: dict[str, Callable[..., Awaitable[Screen]]] = {
     SCREEN_MAIN: _main,
     SCREEN_MODELS: _models,
+    SCREEN_MODEL_CARD: _model_card,
     SCREEN_SESSIONS: _sessions,
+    SCREEN_CHATS: _chats,
+    SCREEN_CHAT_CARD: _chat_card,
     SCREEN_SETTINGS: _settings,
     SCREEN_HELP: _help,
     SCREEN_STATUS: _status,

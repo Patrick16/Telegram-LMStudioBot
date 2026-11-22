@@ -193,6 +193,7 @@ class SessionStoreManager:
         messages = self.load_history(session_id)
         messages.extend(new_messages)
         self.save_history(session_id, messages)
+        self._touch(session_id)
 
     def replace_last_assistant(self, session_id: str, message: ChatMessage) -> None:
         """Replace the trailing assistant message (or append if there is none) atomically."""
@@ -201,6 +202,14 @@ class SessionStoreManager:
             messages.pop()
         messages.append(message)
         self.save_history(session_id, messages)
+        self._touch(session_id)
+
+    def _touch(self, session_id: str) -> None:
+        """Mark the chat as recently active (shown as "last activity" in the menu)."""
+        session = self._store.sessions.get(session_id)
+        if session is not None:
+            session.updated_at = datetime.now(timezone.utc).isoformat()
+            self.save()
 
     def pop_last_assistant(self, session_id: str) -> ChatMessage | None:
         messages = self.load_history(session_id)

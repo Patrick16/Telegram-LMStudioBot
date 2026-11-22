@@ -22,7 +22,10 @@ from src.bot.handlers.menu.screens import (
     SCREEN_CURRENT_SETTINGS,
     SCREEN_HELP,
     SCREEN_HISTORY_POLICY,
+    SCREEN_CHAT_CARD,
+    SCREEN_CHATS,
     SCREEN_MAIN,
+    SCREEN_MODEL_CARD,
     SCREEN_MODEL_SETTINGS,
     SCREEN_MODELS,
     SCREEN_SESSION_SETTINGS,
@@ -34,12 +37,8 @@ from src.bot.handlers.menu.screens import (
 )
 from src.bot.pagination import NOOP
 from src.bot.handlers.models import (
-    _format_downloaded_list,
     _build_load_keyboard,
-    _format_loaded_list,
     _load_prompt,
-    _send_load_keyboard,
-    _send_unload_keyboard,
     perform_load,
     perform_unload,
 )
@@ -137,6 +136,25 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await inference.run_regenerate(query.message, context)
         return
 
+    if data == inference.CB_CONTINUE:
+        await inference.run_text_turn(query.message, context, inference.CONTINUE_PROMPT)
+        return
+
+    if data == inference.CB_NEW_CHAT:
+        store = context.bot_data["store"]
+        session = store.create_session(f"Chat {len(store.list_sessions()) + 1}")
+        await reply_ephemeral(query.message, f"✅ New chat started: {session.name}")
+        return
+
+    if data == inference.CB_MENU:
+        screen = await render_screen(context, SCREEN_MAIN)
+        msg = await query.message.reply_text(
+            screen.text, reply_markup=screen.markup, parse_mode=screen.parse_mode
+        )
+        context.chat_data["menu_message_id"] = msg.message_id
+        context.chat_data["menu_screen"] = SCREEN_MAIN
+        return
+
     for prefix, handler in _PREFIX_HANDLERS:
         if data.startswith(prefix):
             await handler(query, context, data)
@@ -174,45 +192,78 @@ async def _handle_help_section(query, context, data: str) -> None:
 # ---------------------------------------------------------------------------
 
 async def _handle_models_action(query, context, data: str) -> None:
-    if data == "models:list":
-        config = context.bot_data["config"]
-        try:
-            models = await sdk.list_downloaded_models(config.LMS_HOST, config.LMS_PORT)
-            await query.message.reply_text(
-                _format_downloaded_list(models),
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            await reply_ephemeral(query.message, f"❌ Could not list models: {e}")
-        logger.info("Model list requested via menu")
+    # Legacy entry points (error buttons, old menus) all lead to the unified screen.
+    if data in ("models:list", "models:loaded", "models:load", "models:unload"):
+        context.chat_data["models_page"] = 0
+        await show_screen(query, context, SCREEN_MODELS)
         return
 
-    if data == "models:loaded":
-        config = context.bot_data["config"]
-        try:
-            handles = await sdk.list_loaded_models(config.LMS_HOST, config.LMS_PORT)
-            await query.message.reply_text(
-                _format_loaded_list(handles),
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            await reply_ephemeral(query.message, f"❌ Could not list loaded models: {e}")
-        logger.info("Loaded models requested via menu")
+    if data.startswith("models:page:"):
+        context.chat_data["models_page"] = int(data[len("models:page:"):])
+        await show_screen(query, context, SCREEN_MODELS)
         return
 
-    if data.startswith("models:loadpage:"):
+    if data.startswith("models:loadpage:"):  # paginated /load keyboard
         await _show_load_page(query, context, int(data[len("models:loadpage:"):]))
         return
 
-    if data == "models:load":
-        await _send_load_keyboard(query.message, context)
-        logger.info("Load keyboard opened via menu")
+    if data.startswith("models:card:"):
+        cache = context.chat_data.get("models_cache") or []
+        index = int(data[len("models:card:"):])
+        if not 0 <= index < len(cache):
+            await show_screen(
+                query, context, SCREEN_MODELS, banner="⚠️ The model list changed — pick again."
+            )
+            return
+        context.chat_data["model_card_key"] = cache[index].key
+        await show_screen(query, context, SCREEN_MODEL_CARD)
         return
 
-    if data == "models:unload":
-        await _send_unload_keyboard(query.message, context)
-        logger.info("Unload keyboard opened via menu")
+    if data.startswith("models:do:"):
+        await _model_card_action(query, context, data[len("models:do:"):])
         return
+
+    logger.warning("Unrecognised models callback: %s", data)
+
+
+async def _model_card_action(query, context, action: str) -> None:
+    """Load / unload / bind the model shown on the model card."""
+    key = context.chat_data.get("model_card_key")
+    if not key:
+        await show_screen(query, context, SCREEN_MODELS)
+        return
+
+    if action == "bind":
+        store = context.bot_data["store"]
+        session = store.get_active_session()
+        if session is None:
+            banner = "❌ No active chat. Create one first."
+        else:
+            session.model_identifier = key
+            store.update_session(session)
+            banner = f"✅ This chat now uses {key}"
+        await show_screen(query, context, SCREEN_MODEL_CARD, banner=banner)
+        return
+
+    if action not in ("load", "unload"):
+        logger.warning("Unknown model card action: %s", action)
+        return
+
+    verb = "Loading" if action == "load" else "Unloading"
+    try:
+        await query.edit_message_text(f"⏳ {verb} {key}…")
+    except BadRequest:
+        pass
+    try:
+        if action == "load":
+            await perform_load(context, key)
+            banner = f"✅ Loaded {key} — this chat now uses it."
+        else:
+            await perform_unload(context, key)
+            banner = f"✅ Unloaded {key}."
+    except LmsCliError as e:
+        banner = f"❌ {verb} failed: {e}"
+    await show_screen(query, context, SCREEN_MODEL_CARD, banner=banner)
 
 
 async def _show_load_page(query, context, page: int) -> None:
@@ -296,12 +347,13 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         return
 
     if data == "sessions:list":
-        if not store.list_sessions():
-            await show_screen(
-                query, context, SCREEN_SESSIONS, banner="No chats yet — use ➕ New Chat"
-            )
-            return
-        await _show_sessions_page(query, context, "switch", 0)
+        context.chat_data["chats_page"] = 0
+        await show_screen(query, context, SCREEN_CHATS)
+        return
+
+    if data.startswith("sessions:card:"):
+        context.chat_data["chat_card_id"] = data[len("sessions:card:"):]
+        await show_screen(query, context, SCREEN_CHAT_CARD)
         return
 
     if data == "sessions:remove":
@@ -313,6 +365,10 @@ async def _handle_sessions_action(query, context, data: str) -> None:
 
     if data.startswith("sessions:page:"):
         _, _, action, page = data.split(":")
+        if action == "card":
+            context.chat_data["chats_page"] = int(page)
+            await show_screen(query, context, SCREEN_CHATS)
+            return
         await _show_sessions_page(query, context, action, int(page))
         return
 
@@ -327,6 +383,14 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         )
         return
 
+    if data.startswith("sessions:rename:"):
+        session_id = data[len("sessions:rename:"):]
+        if session_id not in store.store.sessions:
+            await show_screen(query, context, SCREEN_CHATS, banner="❌ Chat not found.")
+            return
+        await request_input(query.message, context, data, "Enter a new name for this chat:")
+        return
+
     if data.startswith("sessions:switch:"):
         session_id = data[len("sessions:switch:"):]
         result = store.switch_session(session_id)
@@ -335,8 +399,10 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         await show_screen(query, context, SCREEN_MAIN, banner=banner)
         return
 
-    if data.startswith("sessions:remove_ask:"):
-        session_id = data[len("sessions:remove_ask:"):]
+    if data.startswith(("sessions:remove_ask:", "sessions:del_card:")):
+        from_card = data.startswith("sessions:del_card:")
+        session_id = data.split(":", 2)[2]
+        context.chat_data["delete_from_card"] = from_card
         session = store.store.sessions.get(session_id)
         if session is None:
             await show_screen(query, context, SCREEN_SESSIONS, banner="❌ Chat not found.")
@@ -346,7 +412,9 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         try:
             await query.edit_message_text(
                 text=render_delete_confirmation(session, count),
-                reply_markup=build_delete_confirmation_keyboard(session_id),
+                reply_markup=build_delete_confirmation_keyboard(
+                    session_id, cancel=f"sessions:card:{session_id}" if from_card else None
+                ),
                 parse_mode="HTML",
             )
         except BadRequest:
@@ -357,7 +425,9 @@ async def _handle_sessions_action(query, context, data: str) -> None:
         session_id = data[len("sessions:confirm_remove:"):]
         banner = "✅ Chat removed." if store.delete_session(session_id) else "❌ Chat not found."
         logger.info("Session removed via menu: %s", session_id)
-        await show_screen(query, context, SCREEN_SESSIONS, banner=banner)
+        from_card = context.chat_data.pop("delete_from_card", False)
+        target = SCREEN_CHATS if from_card else SCREEN_SESSIONS
+        await show_screen(query, context, target, banner=banner)
         return
 
 

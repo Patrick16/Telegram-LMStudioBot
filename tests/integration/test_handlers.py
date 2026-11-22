@@ -621,8 +621,14 @@ async def test_e2e_menu_workflow(mock_loaded, update, context, store):
     query.data = "models:loaded"
     update.callback_query = query
     mock_loaded.return_value = [make_loaded_handle("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024)]
-    await menu_callback_handler(update, context)
-    assert "qwen" in query.message.reply_text.call_args[0][0]
+    downloaded = [make_downloaded_model("qwen/qwen3-4b", 3 * 1024 * 1024 * 1024)]
+    with patch("src.lms.sdk.list_downloaded_models", AsyncMock(return_value=downloaded)):
+        await menu_callback_handler(update, context)
+    shown = query.edit_message_text.call_args.kwargs
+    assert "Models" in shown["text"]
+    assert any(
+        "qwen" in b.text for row in shown["reply_markup"].inline_keyboard for b in row
+    )
 
     # 3. Create chat via pending input
     context.chat_data["pending_input"] = "sessions:new"
