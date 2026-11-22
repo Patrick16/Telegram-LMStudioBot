@@ -1,16 +1,11 @@
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.handlers.menu import menu_command_handler
+from src.bot.handlers.quickbar import QUICKBAR_KEYBOARD
 from src.bot.services.inference import ensure_session
 from src.bot.services.status import build_status_text
-
-MENU_REPLY_KEYBOARD = ReplyKeyboardMarkup(
-    [[KeyboardButton("/menu")]],
-    resize_keyboard=True,
-    is_persistent=True,
-)
 
 HELP_TEXT = """🤖 <b>LMStudioBot</b> — Control LM Studio from Telegram
 
@@ -51,7 +46,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.effective_message.reply_text(
         "👋 <b>Welcome to LMStudioBot</b>\n"
         "Just send a message to chat, or use the menu below.\n\n" + status,
-        reply_markup=MENU_REPLY_KEYBOARD,
+        reply_markup=QUICKBAR_KEYBOARD,
         parse_mode="HTML",
     )
     await menu_command_handler.__wrapped__(update, context)

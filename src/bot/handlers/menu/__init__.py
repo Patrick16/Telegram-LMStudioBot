@@ -25,12 +25,12 @@ from src.bot.handlers.menu.pending import (  # noqa: F401
     _execute_settings_update,
     handle_pending_input,
 )
+from src.bot.handlers.menu.screens import render_screen, show_screen  # noqa: F401
 from src.bot.handlers.menu.router import (  # noqa: F401
     _handle_help_section,
     _handle_models_action,
     _handle_sessions_action,
     _handle_settings_action,
-    _show_section,
     menu_callback_handler,
     menu_command_handler,
 )

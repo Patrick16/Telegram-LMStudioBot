@@ -25,6 +25,7 @@ from src.bot.handlers.models import (
     models_command,
     unload_command,
 )
+from src.bot.handlers.quickbar import quickbar_message_handler
 from src.bot.handlers.settings import set_command, setprompt_command
 from src.bot.handlers.status import status_command
 from src.bot.handlers.vision import photo_message_handler
@@ -137,6 +138,8 @@ def main() -> None:
         # Generation runs in its own task so /stop and the menu stay responsive.
         app.add_handler(CommandHandler("stop", stop_command))
         app.add_handler(CommandHandler("regenerate", regenerate_command, block=False))
+        # Bottom-keyboard shortcuts must win over the generic text handler.
+        app.add_handler(quickbar_message_handler())
         app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler, block=False))
         app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler, block=False)

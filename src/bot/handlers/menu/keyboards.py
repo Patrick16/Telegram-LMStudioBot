@@ -1,10 +1,12 @@
 """Keyboard builders, help texts and settings rendering for the inline menu."""
 
 import html
+from dataclasses import dataclass
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from src.bot.pagination import nav_row, paginate
+from src.bot.services.inference import CB_STOP
 
 # ---------------------------------------------------------------------------
 # Help text constants
@@ -42,12 +44,25 @@ HELP_SETTINGS = (
 # ---------------------------------------------------------------------------
 
 
-def render_main_menu_text(store) -> str:
-    """Header of the main menu: active chat and bound model at a glance (Telegram HTML)."""
+@dataclass(frozen=True)
+class LmsState:
+    """LM Studio reachability snapshot shown in the main menu header."""
+
+    online: bool
+    loaded: tuple[str, ...] = ()
+
+
+def render_main_menu_text(store, lms: LmsState | None = None) -> str:
+    """Header of the main menu: LM Studio, active chat and model at a glance (Telegram HTML)."""
     lines = ["🏠 <b>Main Menu</b>"]
+    if lms is not None:
+        if lms.online:
+            lines.append(f"🟢 LM Studio · {len(lms.loaded)} loaded")
+        else:
+            lines.append("🔴 LM Studio · offline")
     session = store.get_active_session()
     if session is None:
-        lines.append("💬 No chat yet — open <b>Chat Sessions</b> → ➕ New Chat")
+        lines.append("💬 No chat yet — tap ➕ New Chat")
     else:
         count = len(store.load_history(session.id))
         name = html.escape(session.name, quote=False)
@@ -57,6 +72,8 @@ def render_main_menu_text(store) -> str:
             lines.append(f"🧠 Model: <code>{model}</code>")
         else:
             lines.append("🧠 Model: <i>not loaded</i>")
+        temperature = session.settings.temperature
+        lines.append(f"🌡 Temperature: <code>{temperature}</code>")
     return "\n".join(lines)
 
 
@@ -76,15 +93,19 @@ def build_delete_confirmation_keyboard(session_id: str) -> InlineKeyboardMarkup:
 
 
 def build_main_menu() -> InlineKeyboardMarkup:
-    """Build the top-level menu keyboard (no Inference section, Regenerate at top)."""
+    """Top-level control panel: the everyday actions are one tap away."""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📦 Model Management", callback_data="menu:models"),
-            InlineKeyboardButton("🧠 Chat Sessions", callback_data="menu:sessions"),
+            InlineKeyboardButton("➕ New Chat", callback_data="sessions:new"),
+            InlineKeyboardButton("🗂 Chats", callback_data="sessions:list"),
         ],
         [
+            InlineKeyboardButton("📦 Models", callback_data="menu:models"),
             InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings"),
+        ],
+        [
             InlineKeyboardButton("🔄 Regenerate", callback_data="menu:regenerate"),
+            InlineKeyboardButton("⏹ Stop", callback_data=CB_STOP),
         ],
         [
             InlineKeyboardButton("📊 Status", callback_data="menu:status"),

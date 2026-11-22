@@ -44,3 +44,11 @@ def _no_real_lm_studio(monkeypatch):
     monkeypatch.setattr(
         "src.lms.sdk.get_context_length", AsyncMock(side_effect=ConnectionError("offline"))
     )
+
+
+@pytest.fixture(autouse=True)
+def _lms_offline_by_default(monkeypatch):
+    """Menu screens probe LM Studio; tests that care patch list_loaded_models themselves."""
+    monkeypatch.setattr(
+        "src.lms.sdk.list_loaded_models", AsyncMock(side_effect=ConnectionError("offline"))
+    )

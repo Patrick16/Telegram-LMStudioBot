@@ -15,7 +15,6 @@ from src.bot.handlers.menu import (
     _handle_models_action,
     _handle_sessions_action,
     _handle_settings_action,
-    _show_section,
     build_back_button,
     build_help_menu,
     build_help_models,
@@ -33,6 +32,7 @@ from src.bot.handlers.menu import (
     menu_callback_handler,
     menu_command_handler,
     render_current_settings,
+    show_screen,
 )
 from src.bot.handlers.models import _build_load_keyboard, _build_unload_keyboard
 from src.lms.cli import LmsCliError
@@ -118,28 +118,24 @@ def make_loaded_handle(identifier: str, size_bytes: int, model_key: str | None =
 # ---------------------------------------------------------------------------
 
 class TestBuildMainMenu:
-    def test_has_six_buttons(self):
+    def test_has_eight_buttons(self):
         kb = build_main_menu()
         buttons = [btn for row in kb.inline_keyboard for btn in row]
-        assert len(buttons) == 6
+        assert len(buttons) == 8
 
     def test_button_labels(self):
         kb = build_main_menu()
         labels = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "📦 Model Management" in labels
-        assert "🧠 Chat Sessions" in labels
-        assert "⚙️ Settings" in labels
-        assert "🔄 Regenerate" in labels
-        assert "❓ Help" in labels
+        for expected in ("➕ New Chat", "🗂 Chats", "📦 Models", "⚙️ Settings",
+                         "🔄 Regenerate", "⏹ Stop", "📊 Status", "❓ Help"):
+            assert expected in labels
 
     def test_callback_data(self):
         kb = build_main_menu()
         data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        assert "menu:models" in data
-        assert "menu:sessions" in data
-        assert "menu:settings" in data
-        assert "menu:regenerate" in data
-        assert "menu:help" in data
+        for expected in ("sessions:new", "sessions:list", "menu:models", "menu:settings",
+                         "menu:regenerate", "gen:stop", "menu:status", "menu:help"):
+            assert expected in data
 
 
 class TestBuildBackButton:
@@ -347,7 +343,7 @@ class TestHelpTopicBuilders:
 class TestShowSection:
     @pytest.mark.asyncio
     async def test_show_main_menu(self, query, context):
-        await _show_section(query, context, "menu:main")
+        await show_screen(query, context, "menu:main")
         query.edit_message_text.assert_called_once()
         call_kwargs = query.edit_message_text.call_args[1]
         assert "Main Menu" in call_kwargs["text"]
@@ -355,10 +351,10 @@ class TestShowSection:
 
     @pytest.mark.asyncio
     async def test_show_models(self, query, context):
-        await _show_section(query, context, "menu:models")
+        await show_screen(query, context, "menu:models")
         query.edit_message_text.assert_called_once()
         call_kwargs = query.edit_message_text.call_args[1]
-        assert call_kwargs["text"] == "📦 Model Management"
+        assert "Model Management" in call_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_stale_message_recovery(self, query, context):
@@ -368,7 +364,7 @@ class TestShowSection:
         sent_msg = MagicMock()
         sent_msg.message_id = 999
         query.message.chat.send_message = AsyncMock(return_value=sent_msg)
-        await _show_section(query, context, "menu:main")
+        await show_screen(query, context, "menu:main")
         query.answer.assert_called_once_with("Menu expired — opening a fresh menu.")
         assert context.chat_data["menu_message_id"] == 999
 
@@ -377,7 +373,7 @@ class TestShowSection:
         query.edit_message_text = AsyncMock(
             side_effect=BadRequest("Message is not modified")
         )
-        await _show_section(query, context, "menu:main")
+        await show_screen(query, context, "menu:main")
         # Should not raise or send fresh menu
 
 
@@ -601,13 +597,13 @@ class TestSessionsAction:
         store.create_session("Other")
         await _handle_sessions_action(query, context, f"sessions:switch:{s.id}")
         assert store.store.active_session_id == s.id
-        assert "Switched" in query.message.reply_text.call_args[0][0]
+        assert "Switched" in query.edit_message_text.call_args.kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_remove_session(self, query, context, store):
         s = store.create_session("ToRemove")
         await _handle_sessions_action(query, context, f"sessions:confirm_remove:{s.id}")
-        assert "removed" in query.message.reply_text.call_args[0][0].lower()
+        assert "removed" in query.edit_message_text.call_args.kwargs["text"].lower()
         assert len(store.list_sessions()) == 0
 
     @pytest.mark.asyncio
@@ -664,7 +660,7 @@ class TestSettingsAction:
     @pytest.mark.asyncio
     async def test_no_session_guard(self, query, context):
         await _handle_settings_action(query, context, "settings:session:temperature")
-        assert "No active chat" in query.message.reply_text.call_args[0][0]
+        assert "No active chat" in query.edit_message_text.call_args.kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_temperature_sets_pending(self, query, context, store):
@@ -723,19 +719,13 @@ class TestSettingsAction:
     async def test_model_presets_empty(self, query, context, store):
         store.create_session("Test")
         await _handle_settings_action(query, context, "settings:model_presets")
-        assert "No model presets" in query.message.reply_text.call_args[0][0]
+        assert "No model presets" in query.edit_message_text.call_args.kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_session_presets_empty(self, query, context, store):
         store.create_session("Test")
         await _handle_settings_action(query, context, "settings:session_presets")
-        assert "No session presets" in query.message.reply_text.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_legacy_prompt_sets_pending(self, query, context, store):
-        store.create_session("Test")
-        await _handle_settings_action(query, context, "settings:prompt")
-        assert context.chat_data["pending_input"] == "settings:prompt"
+        assert "No session presets" in query.edit_message_text.call_args.kwargs["text"]
 
 
 class TestExecuteSettingsUpdate:

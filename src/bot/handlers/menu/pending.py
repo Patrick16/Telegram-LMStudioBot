@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.ephemeral import reply_ephemeral
 from src.bot.handlers.models import perform_load, perform_unload
+from src.bot.handlers.menu.screens import refresh_screen
 from src.bot.handlers.settings_spec import SETTING_SPECS
 from src.lms.cli import LmsCliError
 
@@ -26,6 +27,13 @@ async def request_input(message, context, key: str, prompt: str) -> None:
     """Ask the user for a value: remember what we wait for and offer a Cancel button."""
     context.chat_data["pending_input"] = key
     context.chat_data["pending_input_at"] = time.monotonic()
+    # Remember which screen asked, so it can be refreshed once the value is saved.
+    screen = context.chat_data.get("menu_screen")
+    context.chat_data["pending_return"] = (
+        {"chat_id": message.chat_id, "message_id": message.message_id, "screen": screen}
+        if screen
+        else None
+    )
     await message.reply_text(prompt, reply_markup=input_cancel_keyboard())
     logger.info("Pending input set: %s", key)
 
@@ -39,6 +47,7 @@ def expire_pending_if_stale(context) -> bool:
         return False
     context.chat_data["pending_input"] = None
     context.chat_data["pending_input_at"] = None
+    context.chat_data["pending_return"] = None
     return True
 
 
@@ -67,12 +76,21 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _execute_settings_update(key, text, update, context)
     elif pending.startswith("settings:history_policy:"):
         await _execute_history_policy_update(pending, text, update, context)
-    elif pending.startswith("settings:"):
-        key = pending[len("settings:"):]
-        await _execute_settings_update(key, text, update, context)
     else:
         logger.warning("Unknown pending_input key: %s", pending)
         context.chat_data["pending_input"] = None
+
+    if context.chat_data.get("pending_input") is None:
+        await _refresh_origin_screen(context)
+
+
+async def _refresh_origin_screen(context) -> None:
+    """After a value was saved, re-render the screen whose button asked for it."""
+    origin = context.chat_data.pop("pending_return", None)
+    if origin:
+        await refresh_screen(
+            context, origin["chat_id"], origin["message_id"], origin["screen"]
+        )
 
 
 # ---------------------------------------------------------------------------
