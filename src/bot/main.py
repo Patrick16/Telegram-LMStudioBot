@@ -85,6 +85,9 @@ def main() -> None:
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
         )
+        # httpx logs full request URLs, which contain the bot token.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
         store = SessionStoreManager(
             config.SESSIONS_FILE,
