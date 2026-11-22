@@ -308,7 +308,7 @@ async def test_set_temperature(update, context, store):
     context.args = ["temperature", "0.5"]
     await set_command(update, context)
     reply = update.effective_message.reply_text.call_args[0][0]
-    assert "temperature set to 0.5" in reply
+    assert "temperature set to 0.5" in reply.lower()
 
 
 @pytest.mark.asyncio
@@ -317,7 +317,7 @@ async def test_set_invalid_value(update, context, store):
     context.args = ["temperature", "5.0"]
     await set_command(update, context)
     reply = update.effective_message.reply_text.call_args[0][0]
-    assert "Invalid value" in reply or "<=" in reply
+    assert "between 0.0 and 2.0" in reply
 
 
 @pytest.mark.asyncio

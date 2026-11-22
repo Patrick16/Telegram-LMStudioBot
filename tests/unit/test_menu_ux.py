@@ -50,6 +50,7 @@ def query():
 async def test_value_prompt_offers_cancel_and_cancel_clears_pending(store, context, query):
     store.create_session("S")
     await _handle_settings_action(query, context, "settings:session:temperature")
+    await _handle_settings_action(query, context, "settings:param:input")
 
     assert context.chat_data["pending_input"] == "settings:session:temperature"
     markup = query.message.reply_text.await_args.kwargs["reply_markup"]

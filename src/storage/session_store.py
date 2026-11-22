@@ -12,6 +12,7 @@ from src.storage.models import (
     ChatSession,
     ModelPresetsFile,
     SessionHistoryFile,
+    SessionPreset,
     SessionPresetsFile,
     SessionStore,
 )
@@ -251,3 +252,20 @@ class SessionStoreManager:
         except Exception:
             logger.warning("Failed to load session presets, returning empty")
             return SessionPresetsFile()
+
+    def save_session_preset(self, name: str, settings, description: str | None = None) -> None:
+        """Store a copy of *settings* as a preset; an existing preset of that name is replaced."""
+        presets = self.load_session_presets()
+        preset = SessionPreset(
+            name=name, settings=settings.model_copy(deep=True), description=description
+        )
+        presets.presets = [p for p in presets.presets if p.name != name] + [preset]
+        _atomic_write_json(self._session_presets_file, presets.model_dump())
+
+    def delete_session_preset(self, index: int) -> bool:
+        presets = self.load_session_presets()
+        if not 0 <= index < len(presets.presets):
+            return False
+        del presets.presets[index]
+        _atomic_write_json(self._session_presets_file, presets.model_dump())
+        return True

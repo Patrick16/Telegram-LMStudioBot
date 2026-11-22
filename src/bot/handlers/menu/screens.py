@@ -40,6 +40,17 @@ from src.bot.handlers.menu.keyboards import (
     render_current_settings,
     render_main_menu_text,
 )
+from src.bot.handlers.menu.params import (
+    build_param_keyboard,
+    build_preset_card_keyboard,
+    build_presets_keyboard,
+    mode_title,
+    render_history_policy_text,
+    render_model_preset_card,
+    render_param_text,
+    render_session_preset_card,
+)
+from src.bot.handlers.settings_spec import SETTING_SPECS
 from src.bot.pagination import nav_row, paginate
 from src.bot.services.status import build_status_text
 from src.lms import sdk
@@ -61,6 +72,10 @@ SCREEN_CURRENT_SETTINGS = "settings:current"
 SCREEN_MODEL_CARD = "models:card"
 SCREEN_CHATS = "sessions:list"
 SCREEN_CHAT_CARD = "sessions:card"
+SCREEN_PARAM = "settings:param"
+SCREEN_MODEL_PRESETS = "settings:model_presets"
+SCREEN_SESSION_PRESETS = "settings:session_presets"
+SCREEN_PRESET_CARD = "settings:preset"
 
 
 @dataclass(frozen=True)
@@ -226,14 +241,58 @@ async def _model_settings(context) -> Screen:
 async def _session_settings(context) -> Screen:
     session = _active_session(context)
     settings = session.settings if session is not None else None
-    return Screen("💬 <b>Session Settings</b>", build_session_settings_menu(settings))
+    lines = ["💬 <b>Session Settings</b>"]
+    if settings is not None:
+        lines.append(f"Mode: {mode_title(settings)}")
+        lines.append("<i>Pick a mode, or tap a setting to fine-tune it.</i>")
+    return Screen("\n".join(lines), build_session_settings_menu(settings))
+
+
+async def _param(context) -> Screen:
+    session = _active_session(context)
+    key = context.chat_data.get("param_key")
+    if session is None or key not in SETTING_SPECS:
+        return await _session_settings(context)
+    return Screen(
+        render_param_text(key, session.settings), build_param_keyboard(key, session.settings)
+    )
 
 
 async def _history_policy(context) -> Screen:
     session = _active_session(context)
-    current = session.settings.history_policy.mode if session is not None else "—"
-    text = f"📜 <b>History Reuse Policy</b>\nCurrent: {_code(current)}"
-    return Screen(text, build_history_policy_menu())
+    settings = session.settings if session is not None else None
+    current = settings.history_policy.mode if settings is not None else None
+    return Screen(render_history_policy_text(settings), build_history_policy_menu(current))
+
+
+async def _model_presets(context) -> Screen:
+    presets = context.bot_data["store"].load_model_presets()
+    text = "📦 <b>Model Presets</b>\n<i>Applied on the next model load.</i>"
+    return Screen(text, build_presets_keyboard("model", presets, can_save=False))
+
+
+async def _session_presets(context) -> Screen:
+    presets = context.bot_data["store"].load_session_presets()
+    if presets.presets:
+        text = "💾 <b>Session Presets</b>\nTap a preset to preview it."
+    else:
+        text = "💾 <b>Session Presets</b>\nNo session presets yet."
+    return Screen(text, build_presets_keyboard("session", presets, can_save=True))
+
+
+async def _preset_card(context) -> Screen:
+    kind, index = context.chat_data.get("preset_card", (None, -1))
+    store = context.bot_data["store"]
+    if kind == "model":
+        presets = store.load_model_presets().presets
+        render = render_model_preset_card
+    else:
+        kind = "session"
+        presets = store.load_session_presets().presets
+        render = render_session_preset_card
+    if not 0 <= index < len(presets):
+        return await (_model_presets(context) if kind == "model" else _session_presets(context))
+    return Screen(render(presets[index]), build_preset_card_keyboard(kind, index))
 
 
 async def _current_settings(context) -> Screen:
@@ -257,6 +316,10 @@ SCREENS: dict[str, Callable[..., Awaitable[Screen]]] = {
     SCREEN_STATUS: _status,
     SCREEN_MODEL_SETTINGS: _model_settings,
     SCREEN_SESSION_SETTINGS: _session_settings,
+    SCREEN_PARAM: _param,
+    SCREEN_MODEL_PRESETS: _model_presets,
+    SCREEN_SESSION_PRESETS: _session_presets,
+    SCREEN_PRESET_CARD: _preset_card,
     SCREEN_HISTORY_POLICY: _history_policy,
     SCREEN_CURRENT_SETTINGS: _current_settings,
 }

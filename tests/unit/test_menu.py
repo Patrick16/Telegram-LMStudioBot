@@ -604,15 +604,19 @@ class TestSettingsAction:
         assert "No active chat" in query.edit_message_text.call_args.kwargs["text"]
 
     @pytest.mark.asyncio
-    async def test_temperature_sets_pending(self, query, context, store):
+    async def test_temperature_opens_parameter_screen_then_prompts(self, query, context, store):
         store.create_session("Test")
         await _handle_settings_action(query, context, "settings:session:temperature")
+        assert "Temperature" in query.edit_message_text.call_args.kwargs["text"]
+        assert context.chat_data.get("pending_input") is None
+        await _handle_settings_action(query, context, "settings:param:input")
         assert context.chat_data["pending_input"] == "settings:session:temperature"
 
     @pytest.mark.asyncio
-    async def test_prompt_sets_pending(self, query, context, store):
+    async def test_prompt_opens_parameter_screen_then_prompts(self, query, context, store):
         store.create_session("Test")
         await _handle_settings_action(query, context, "settings:session:prompt")
+        await _handle_settings_action(query, context, "settings:param:input")
         assert context.chat_data["pending_input"] == "settings:session:prompt"
 
     @pytest.mark.asyncio

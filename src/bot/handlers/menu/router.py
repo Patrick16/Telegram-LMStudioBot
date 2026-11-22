@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -17,6 +17,7 @@ from src.bot.handlers.menu.keyboards import (
     build_sessions_list_keyboard,
     render_delete_confirmation,
 )
+from src.bot.handlers.menu.params import CREATIVITY_MODES, history_policy_title
 from src.bot.handlers.menu.pending import CB_INPUT_CANCEL, request_input
 from src.bot.handlers.menu.screens import (
     SCREEN_CURRENT_SETTINGS,
@@ -26,8 +27,12 @@ from src.bot.handlers.menu.screens import (
     SCREEN_CHATS,
     SCREEN_MAIN,
     SCREEN_MODEL_CARD,
+    SCREEN_MODEL_PRESETS,
+    SCREEN_PARAM,
+    SCREEN_PRESET_CARD,
     SCREEN_MODEL_SETTINGS,
     SCREEN_MODELS,
+    SCREEN_SESSION_PRESETS,
     SCREEN_SESSION_SETTINGS,
     SCREEN_SESSIONS,
     SCREEN_SETTINGS,
@@ -43,6 +48,7 @@ from src.bot.handlers.models import (
     perform_unload,
 )
 from src.bot.services import inference
+from src.bot.handlers.settings_spec import SETTING_SPECS, confirmation_for, step_value
 from src.storage.models import HistoryReusePolicy, SessionGenerationSettings
 from src.bot.services.generation import get_generations
 from src.lms import sdk
@@ -445,32 +451,112 @@ _MODEL_SETTING_PROMPTS = {
     "settings:model:identifier": "Enter model identifier:",
 }
 
-_SESSION_SETTING_PROMPTS = {
-    "settings:session:prompt": "Enter the system prompt (or send empty to clear):",
-    "settings:session:temperature": "Enter temperature (0.0–2.0):",
-    "settings:session:max_tokens": "Enter max tokens (integer ≥ -1, use -1 for unlimited):",
-    "settings:session:top_p": "Enter top-p (0.0–1.0):",
-    "settings:session:top_k": "Enter top-k (integer ≥ 1, or 'none' to clear):",
-    "settings:session:repeat_penalty": "Enter repeat penalty (> 0, or 'none' to clear):",
-    "settings:session:stop_strings": "Enter stop strings (comma-separated, or 'none' to clear):",
-    "settings:session:seed": "Enter seed (integer ≥ 0, or 'none' for random):",
-}
+
+async def _handle_param_action(query, context, session, action: str) -> None:
+    """Buttons on a parameter screen: quick pick, +/-, enter a value, back to default."""
+    store = context.bot_data["store"]
+    spec = SETTING_SPECS.get(context.chat_data.get("param_key"))
+    if spec is None:
+        await show_screen(query, context, SCREEN_SESSION_SETTINGS)
+        return
+
+    if action == "input":
+        key = context.chat_data["param_key"]
+        await request_input(query.message, context, f"settings:session:{key}", spec.prompt)
+        return
+
+    current = getattr(session.settings, spec.attr)
+    if action.startswith("pick:"):
+        index = int(action[len("pick:"):])
+        if not 0 <= index < len(spec.choices):
+            await show_screen(query, context, SCREEN_PARAM)
+            return
+        value = spec.choices[index][1]
+        message = confirmation_for(spec, value)
+    elif action.startswith("step:"):
+        try:
+            value = step_value(spec, current, int(action[len("step:"):]))
+        except ValueError:
+            await show_screen(query, context, SCREEN_PARAM, banner="⚠️ Already at the limit.")
+            return
+        message = spec.on_set(value)
+    elif action == "reset":
+        value = getattr(SessionGenerationSettings(), spec.attr)
+        message = f"✅ {spec.title} reset to default."
+    else:
+        logger.warning("Unknown parameter action: %s", action)
+        return
+
+    setattr(session.settings, spec.attr, value)
+    store.update_session(session)
+    await show_screen(query, context, SCREEN_PARAM, banner=message)
 
 
-async def _show_presets(query, context, kind: str, title: str, presets) -> None:
-    """List presets of *kind* ("model" / "session") as buttons."""
-    rows = []
-    for i, p in enumerate(presets.presets):
-        label = f"{p.name} — {p.description[:30]}" if p.description else p.name
-        rows.append(
-            [InlineKeyboardButton(label, callback_data=f"settings:apply_{kind}_preset:{i}")]
+async def _handle_preset_action(query, context, session, data: str) -> bool:
+    """Preset list / preview / apply / delete / save. Returns False if *data* is not ours."""
+    store = context.bot_data["store"]
+
+    if data == "settings:model_presets":
+        if not store.load_model_presets().presets:
+            await show_screen(query, context, SCREEN_SETTINGS, banner="No model presets found.")
+        else:
+            await show_screen(query, context, SCREEN_MODEL_PRESETS)
+        return True
+
+    if data == "settings:session_presets":
+        await show_screen(query, context, SCREEN_SESSION_PRESETS)
+        return True
+
+    if data.startswith("settings:preset:"):
+        _, _, kind, index = data.split(":")
+        context.chat_data["preset_card"] = (kind, int(index))
+        await show_screen(query, context, SCREEN_PRESET_CARD)
+        return True
+
+    if data.startswith("settings:apply_model_preset:"):
+        index = int(data[len("settings:apply_model_preset:"):])
+        presets = store.load_model_presets().presets
+        if not 0 <= index < len(presets):
+            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
+            return True
+        preset = presets[index]
+        # Model presets are informational — stage the values for the next load.
+        context.chat_data["staged_model_settings"] = preset.settings.model_dump()
+        await show_screen(
+            query, context, SCREEN_SETTINGS,
+            banner=f"✅ Model preset '{preset.name}' staged. Applies on the next model load.",
         )
-    rows.append([InlineKeyboardButton("⬅ Back", callback_data=SCREEN_SETTINGS)])
-    context.chat_data["menu_screen"] = None
-    try:
-        await query.edit_message_text(text=title, reply_markup=InlineKeyboardMarkup(rows))
-    except BadRequest:
-        pass
+        return True
+
+    if data.startswith("settings:apply_session_preset:"):
+        index = int(data[len("settings:apply_session_preset:"):])
+        presets = store.load_session_presets().presets
+        if not 0 <= index < len(presets):
+            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
+            return True
+        preset = presets[index]
+        session.settings = preset.settings.model_copy(deep=True)
+        store.update_session(session)
+        await show_screen(
+            query, context, SCREEN_SESSION_SETTINGS,
+            banner=f"✅ Session preset '{preset.name}' applied.",
+        )
+        return True
+
+    if data.startswith("settings:del_session_preset:"):
+        index = int(data[len("settings:del_session_preset:"):])
+        banner = "✅ Preset deleted." if store.delete_session_preset(index) else "❌ Invalid preset."
+        await show_screen(query, context, SCREEN_SESSION_PRESETS, banner=banner)
+        return True
+
+    if data == "settings:save_session_preset":
+        await request_input(
+            query.message, context, "settings:save_preset",
+            "Enter a name for the preset (it saves this chat's current settings):",
+        )
+        return True
+
+    return False
 
 
 async def _handle_settings_action(query, context, data: str) -> None:
@@ -489,6 +575,23 @@ async def _handle_settings_action(query, context, data: str) -> None:
         await show_screen(query, context, data)
         return
 
+    # --- Parameter screens ---
+    if data.startswith("settings:param:"):
+        await _handle_param_action(query, context, session, data[len("settings:param:"):])
+        return
+
+    # --- Creativity modes ---
+    if data.startswith("settings:mode:"):
+        title, values = CREATIVITY_MODES.get(data[len("settings:mode:"):], (None, None))
+        if values is None:
+            logger.warning("Unknown creativity mode: %s", data)
+            return
+        for attr, value in values.items():
+            setattr(session.settings, attr, value)
+        store.update_session(session)
+        await show_screen(query, context, SCREEN_SESSION_SETTINGS, banner=f"✅ Mode: {title}")
+        return
+
     # --- History Policy ---
     if data.startswith("settings:history_policy:"):
         mode = data[len("settings:history_policy:"):]
@@ -501,87 +604,42 @@ async def _handle_settings_action(query, context, data: str) -> None:
         session.settings.history_policy = HistoryReusePolicy(mode=mode)
         store.update_session(session)
         await show_screen(
-            query, context, SCREEN_HISTORY_POLICY, banner=f"✅ History policy set to {mode}"
+            query, context, SCREEN_HISTORY_POLICY,
+            banner=f"✅ History: {history_policy_title(mode)}",
         )
         return
 
-    # --- Model Presets ---
-    if data == "settings:model_presets":
-        presets = store.load_model_presets()
-        if not presets.presets:
-            await show_screen(query, context, SCREEN_SETTINGS, banner="No model presets found.")
-            return
-        await _show_presets(query, context, "model", "📦 Model Presets", presets)
+    # --- Presets ---
+    if await _handle_preset_action(query, context, session, data):
         return
 
-    if data.startswith("settings:apply_model_preset:"):
-        idx = int(data[len("settings:apply_model_preset:"):])
-        presets = store.load_model_presets()
-        if idx < 0 or idx >= len(presets.presets):
-            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
-            return
-        preset = presets.presets[idx]
-        # Model presets are informational — store the values for the next /load
-        context.chat_data["staged_model_settings"] = preset.settings.model_dump()
-        await show_screen(
-            query, context, SCREEN_SETTINGS,
-            banner=f"✅ Model preset '{preset.name}' staged. Applies on the next model load.",
-        )
-        return
-
-    # --- Session Presets ---
-    if data == "settings:session_presets":
-        presets = store.load_session_presets()
-        if not presets.presets:
-            await show_screen(
-                query, context, SCREEN_SETTINGS, banner="No session presets found."
-            )
-            return
-        await _show_presets(query, context, "session", "💾 Session Presets", presets)
-        return
-
-    if data.startswith("settings:apply_session_preset:"):
-        idx = int(data[len("settings:apply_session_preset:"):])
-        presets = store.load_session_presets()
-        if idx < 0 or idx >= len(presets.presets):
-            await show_screen(query, context, SCREEN_SETTINGS, banner="❌ Invalid preset.")
-            return
-        preset = presets.presets[idx]
-        for key, value in preset.settings.model_dump().items():
-            setattr(session.settings, key, value)
-        store.update_session(session)
-        await show_screen(
-            query, context, SCREEN_SESSION_SETTINGS,
-            banner=f"✅ Session preset '{preset.name}' applied.",
-        )
-        return
-
-    # --- Value prompts ---
+    # --- Model-scoped value prompts ---
     if data in _MODEL_SETTING_PROMPTS:
         await request_input(query.message, context, data, _MODEL_SETTING_PROMPTS[data])
         return
 
-    if data in _SESSION_SETTING_PROMPTS:
-        await request_input(query.message, context, data, _SESSION_SETTING_PROMPTS[data])
-        return
-
-    # --- Session toggles / reset ---
-    if data == "settings:session:toggle_reasoning":
-        session.settings.show_reasoning = not session.settings.show_reasoning
-        store.update_session(session)
-        await show_screen(query, context, SCREEN_SESSION_SETTINGS)
-        return
-
-    if data == "settings:session:reset":
-        defaults = SessionGenerationSettings()
-        for attr in _RESETTABLE_SETTINGS:
-            setattr(session.settings, attr, getattr(defaults, attr))
-        store.update_session(session)
-        await show_screen(
-            query, context, SCREEN_SESSION_SETTINGS,
-            banner="✅ Generation settings reset to defaults.",
-        )
-        return
+    # --- Session toggles / reset / per-setting screens ---
+    if data.startswith("settings:session:"):
+        key = data[len("settings:session:"):]
+        if key == "toggle_reasoning":
+            session.settings.show_reasoning = not session.settings.show_reasoning
+            store.update_session(session)
+            await show_screen(query, context, SCREEN_SESSION_SETTINGS)
+            return
+        if key == "reset":
+            defaults = SessionGenerationSettings()
+            for attr in _RESETTABLE_SETTINGS:
+                setattr(session.settings, attr, getattr(defaults, attr))
+            store.update_session(session)
+            await show_screen(
+                query, context, SCREEN_SESSION_SETTINGS,
+                banner="✅ Generation settings reset to defaults.",
+            )
+            return
+        if key in SETTING_SPECS:
+            context.chat_data["param_key"] = key
+            await show_screen(query, context, SCREEN_PARAM)
+            return
 
     logger.warning("Unrecognised settings callback: %s", data)
 

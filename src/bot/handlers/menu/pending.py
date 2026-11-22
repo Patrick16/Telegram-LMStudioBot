@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from src.bot.ephemeral import reply_ephemeral
 from src.bot.handlers.models import perform_load, perform_unload
 from src.bot.handlers.menu.screens import refresh_screen
-from src.bot.handlers.settings_spec import SETTING_SPECS
+from src.bot.handlers.settings_spec import SETTING_SPECS, apply_text
 from src.lms.cli import LmsCliError
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,8 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
     elif pending.startswith("settings:session:"):
         key = pending[len("settings:session:"):]
         await _execute_settings_update(key, text, update, context)
+    elif pending == "settings:save_preset":
+        await _execute_save_preset(text, update, context)
     elif pending.startswith("settings:history_policy:"):
         await _execute_history_policy_update(pending, text, update, context)
     else:
@@ -155,16 +157,12 @@ async def _execute_settings_update(
         context.chat_data["pending_input"] = None
         return
 
-    if text.lower() in spec.clear_words:
-        value, message = spec.cleared_value, spec.on_clear
-    else:
-        try:
-            value = spec.parse(text)
-        except ValueError:
-            # Invalid input: keep waiting so the user can retry (or /menu to cancel).
-            await reply_ephemeral(update.effective_message, spec.error)
-            return
-        message = spec.on_set(value)
+    try:
+        value, message = apply_text(spec, text)
+    except ValueError as err:
+        # Invalid input: keep waiting so the user can retry (or /menu to cancel).
+        await reply_ephemeral(update.effective_message, str(err))
+        return
 
     setattr(session.settings, spec.attr, value)
     store.update_session(session)
@@ -174,6 +172,7 @@ async def _execute_settings_update(
 
 
 MAX_CHAT_NAME = 64
+MAX_PRESET_NAME = 40
 
 
 async def _execute_sessions_rename(
@@ -276,3 +275,24 @@ async def _execute_history_policy_update(
         )
         context.chat_data["pending_input"] = None
         return
+
+
+async def _execute_save_preset(text: str, update: Update, context) -> None:
+    """Save the active chat's settings under the typed name."""
+    store = context.bot_data["store"]
+    session = store.get_active_session()
+    if session is None:
+        await reply_ephemeral(update.effective_message, "❌ No active chat.")
+        context.chat_data["pending_input"] = None
+        return
+    if not text:
+        await reply_ephemeral(update.effective_message, "❌ The name cannot be empty.")
+        return
+    if len(text) > MAX_PRESET_NAME:
+        await reply_ephemeral(
+            update.effective_message, f"❌ The name must be {MAX_PRESET_NAME} characters or fewer."
+        )
+        return
+    store.save_session_preset(text, session.settings)
+    await reply_ephemeral(update.effective_message, f"✅ Preset saved: {text}")
+    context.chat_data["pending_input"] = None

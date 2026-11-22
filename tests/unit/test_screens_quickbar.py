@@ -12,7 +12,7 @@ from src.bot.handlers.menu.keyboards import LmsState, render_main_menu_text
 from src.bot.handlers.menu.screens import (
     SCREEN_MAIN,
     SCREEN_SESSIONS,
-    SCREEN_SESSION_SETTINGS,
+    SCREEN_PARAM,
     SCREENS,
     render_screen,
     show_screen,
@@ -137,9 +137,9 @@ async def test_reset_shows_banner_on_session_settings(store, context, query):
 @pytest.mark.asyncio
 async def test_saved_value_refreshes_originating_screen(store, context, query):
     store.create_session("S")
-    await show_screen(query, context, SCREEN_SESSION_SETTINGS)
     await _handle_settings_action(query, context, "settings:session:temperature")
-    assert context.chat_data["pending_return"]["screen"] == SCREEN_SESSION_SETTINGS
+    await _handle_settings_action(query, context, "settings:param:input")
+    assert context.chat_data["pending_return"]["screen"] == SCREEN_PARAM
 
     update = MagicMock()
     update.effective_message.text = "1.5"
@@ -148,16 +148,16 @@ async def test_saved_value_refreshes_originating_screen(store, context, query):
 
     call = context.bot.edit_message_text.await_args.kwargs
     assert call["message_id"] == 77 and call["chat_id"] == 5
-    markup = call["reply_markup"].inline_keyboard
-    assert any("1.5" in b.text for row in markup for b in row)
+    assert "<code>1.5</code>" in call["text"]
+    assert any("✅ 1.5" in b.text for row in call["reply_markup"].inline_keyboard for b in row)
     assert context.chat_data.get("pending_return") is None
 
 
 @pytest.mark.asyncio
 async def test_invalid_value_keeps_waiting_without_refresh(store, context, query):
     store.create_session("S")
-    await show_screen(query, context, SCREEN_SESSION_SETTINGS)
     await _handle_settings_action(query, context, "settings:session:temperature")
+    await _handle_settings_action(query, context, "settings:param:input")
     update = MagicMock()
     update.effective_message.text = "banana"
     update.effective_message.reply_text = AsyncMock(return_value=MagicMock())

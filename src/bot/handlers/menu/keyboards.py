@@ -5,6 +5,11 @@ from dataclasses import dataclass
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from src.bot.handlers.menu.params import (
+    HISTORY_POLICIES,
+    build_modes_row,
+    summarize_session_settings,
+)
 from src.bot.pagination import nav_row, paginate
 from src.bot.services.inference import CB_STOP
 
@@ -30,14 +35,13 @@ HELP_SESSIONS = (
 
 HELP_SETTINGS = (
     "⚙️ <b>Settings Help</b>\n\n"
-    "• <b>Current Settings</b> — View both model and session settings at a glance.\n"
-    "• <b>Model Settings</b> — Adjust model-scoped runtime settings "
-    "(GPU, context length, identifier).\n"
-    "• <b>Session Settings</b> — Adjust session-scoped generation "
-    "settings (temperature, max tokens, etc.).\n"
-    "• <b>Model Presets</b> — Browse and apply saved model setting presets.\n"
-    "• <b>Session Presets</b> — Browse and apply saved session setting presets.\n"
-    "• <b>History Reuse Policy</b> — Control how chat history is assembled for inference."
+    "• <b>Current Settings</b> — a readable overview of this chat's settings.\n"
+    "• <b>Session Settings</b> — pick a mode (🎯 Precise / ⚖️ Balanced / 🎨 Creative) or "
+    "tap a setting: quick values, ➖/➕ steps, or type your own.\n"
+    "• <b>Model Settings</b> — GPU, context length and identifier, applied on the next load.\n"
+    "• <b>Model / Session Presets</b> — preview a preset before applying it; "
+    "session presets can be saved from the current settings.\n"
+    "• <b>History Reuse Policy</b> — how much of the chat the model sees each turn."
 )
 
 # ---------------------------------------------------------------------------
@@ -190,7 +194,10 @@ def build_session_settings_menu(settings=None) -> InlineKeyboardMarkup:
             return icon_name
         return f"{icon_name} · {_value_label(settings, attr)}"
 
-    rows = [
+    rows = []
+    if settings is not None:
+        rows.append(build_modes_row(settings))
+    rows += [
         [InlineKeyboardButton(label("📝 System Prompt", "system_prompt"),
                               callback_data="settings:session:prompt")],
         [
@@ -225,24 +232,17 @@ def build_session_settings_menu(settings=None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def build_history_policy_menu() -> InlineKeyboardMarkup:
-    """History reuse policy selection menu."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚫 Off", callback_data="settings:history_policy:off")],
+def build_history_policy_menu(current: str | None = None) -> InlineKeyboardMarkup:
+    """History reuse policy selection menu; the active policy is marked with ✅."""
+    rows = [
         [InlineKeyboardButton(
-            "📐 Fit Budget (Recent)",
-            callback_data="settings:history_policy:fit_budget_recent",
-        )],
-        [InlineKeyboardButton(
-            "🔢 Last N Pairs",
-            callback_data="settings:history_policy:last_n_pairs",
-        )],
-        [InlineKeyboardButton(
-            "📋 Full If Possible",
-            callback_data="settings:history_policy:full_if_possible",
-        )],
-        [InlineKeyboardButton("⬅ Back", callback_data="menu:settings")],
-    ])
+            ("✅ " if mode == current else "") + title,
+            callback_data=f"settings:history_policy:{mode}",
+        )]
+        for mode, (title, _) in HISTORY_POLICIES.items()
+    ]
+    rows.append([InlineKeyboardButton("⬅ Back", callback_data="menu:settings")])
+    return InlineKeyboardMarkup(rows)
 
 
 def build_help_menu() -> InlineKeyboardMarkup:
@@ -300,37 +300,13 @@ def _code(value) -> str:
 
 
 def render_current_settings(session, model_info: str | None = None) -> str:
-    """Build a combined current-settings text (Telegram HTML) for both scopes."""
-    s = session.settings
-    lines = ["📋 <b>Current Settings</b>\n"]
-
-    lines.append("<b>Session Settings</b>")
-    prompt_display = (
-        s.system_prompt[:60] + '…'
-        if len(s.system_prompt) > 60
-        else s.system_prompt or '(none)'
-    )
-    lines.append(f"  System Prompt: {_code(prompt_display)}")
-    lines.append(f"  Temperature: {_code(s.temperature)}")
-    lines.append(f"  Max Tokens: {_code(s.max_tokens)}")
-    lines.append(f"  Top-P: {_code(s.top_p)}")
-    lines.append(f"  Top-K: {_code(s.top_k if s.top_k is not None else '(default)')}")
-    lines.append(
-        "  Repeat Penalty: "
-        + _code(s.repeat_penalty if s.repeat_penalty is not None else "(default)")
-    )
-    lines.append(f"  Stop Strings: {_code(s.stop_strings or '(none)')}")
-    lines.append(f"  Seed: {_code(s.seed if s.seed is not None else '(random)')}")
-    lines.append(f"  Show reasoning: {_code('on' if s.show_reasoning else 'off')}")
-    lines.append(f"  History Policy: {_code(s.history_policy.mode)}")
-    if s.history_policy.mode == "last_n_pairs" and s.history_policy.message_pair_limit is not None:
-        lines.append(f"    Pair Limit: {_code(s.history_policy.message_pair_limit)}")
-
+    """Readable overview of the active chat's settings (Telegram HTML)."""
+    lines = ["📋 <b>Current Settings</b>", ""]
+    lines.extend(summarize_session_settings(session.settings))
     lines.append("")
-    lines.append("<b>Model Runtime</b>")
+    lines.append("<b>Model</b>")
     if model_info:
-        lines.append(f"  Loaded: {_code(model_info)}")
+        lines.append(f"🧠 {_code(model_info)}")
     else:
-        lines.append("  <i>(No model loaded)</i>")
-
+        lines.append("<i>(No model loaded)</i>")
     return "\n".join(lines)

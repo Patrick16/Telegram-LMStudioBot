@@ -1,22 +1,16 @@
 import logging
-from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.auth import require_owner
 from src.bot.ephemeral import reply_ephemeral
+from src.bot.handlers.settings_spec import SETTING_SPECS, apply_text
 
 logger = logging.getLogger(__name__)
 
-VALID_SETTINGS: dict[str, dict[str, Any]] = {
-    "temperature": {"type": float, "min": 0.0, "max": 2.0},
-    "max_tokens": {"type": int, "min": -1, "max": None},
-    "top_p": {"type": float, "min": 0.0, "max": 1.0},
-    "top_k": {"type": int, "min": 1, "max": None},
-    "repeat_penalty": {"type": float, "min": 0.01, "max": None},
-    "seed": {"type": int, "min": 0, "max": None},
-}
+# ``/set`` accepts every menu setting except the system prompt (that is /setprompt).
+SET_COMMAND_NAMES = tuple(name for name in SETTING_SPECS if name != "prompt")
 
 
 async def _cmd_reply(message, text: str) -> None:
@@ -33,90 +27,44 @@ async def setprompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     prompt_text = " ".join(context.args) if context.args else ""
-    session.settings.system_prompt = prompt_text
+    value, message = apply_text(SETTING_SPECS["prompt"], prompt_text)
+    session.settings.system_prompt = value
     store.update_session(session)
-
-    if prompt_text:
-        await _cmd_reply(update.effective_message, "✅ System prompt updated.")
-    else:
-        await _cmd_reply(update.effective_message, "✅ System prompt cleared.")
+    await _cmd_reply(update.effective_message, message)
 
 
 @require_owner
 async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/set <setting> <value>`` — same parsing and validation as the menu."""
     store = context.bot_data["store"]
     session = store.get_active_session()
     if session is None:
         await _cmd_reply(update.effective_message, "❌ No active chat. Use /newchat first.")
         return
 
+    valid_names = ", ".join(SET_COMMAND_NAMES)
     args = context.args
     if not args or len(args) < 2:
-        valid_names = ", ".join(list(VALID_SETTINGS.keys()) + ["stop_strings"])
         await _cmd_reply(
             update.effective_message,
             f"❌ Usage: /set <setting> <value>\nValid settings: {valid_names}",
         )
         return
 
-    setting_name = args[0].lower()
-    value_str = args[1]
-
-    # Handle stop_strings specially (comma-separated list)
-    if setting_name == "stop_strings":
-        raw = " ".join(args[1:])
-        if raw.lower() in ("none", "clear", "[]"):
-            session.settings.stop_strings = []
-        else:
-            session.settings.stop_strings = [s.strip() for s in raw.split(",") if s.strip()]
-        store.update_session(session)
+    name = args[0].lower()
+    spec = SETTING_SPECS.get(name) if name in SET_COMMAND_NAMES else None
+    if spec is None:
         await _cmd_reply(
-            update.effective_message,
-            f"✅ stop_strings set to {session.settings.stop_strings}",
+            update.effective_message, f"❌ Unknown setting: {name}. Valid: {valid_names}"
         )
-        return
-
-    if setting_name not in VALID_SETTINGS:
-        valid_names = ", ".join(list(VALID_SETTINGS.keys()) + ["stop_strings"])
-        await _cmd_reply(
-            update.effective_message,
-            f"❌ Unknown setting: {setting_name}. Valid: {valid_names}",
-        )
-        return
-
-    spec = VALID_SETTINGS[setting_name]
-
-    # Allow clearing nullable settings
-    if value_str.lower() in ("none", "null") and setting_name in (
-        "top_k", "repeat_penalty", "seed",
-    ):
-        setattr(session.settings, setting_name, None)
-        store.update_session(session)
-        await _cmd_reply(update.effective_message, f"✅ {setting_name} cleared")
         return
 
     try:
-        value = spec["type"](value_str)
-    except (ValueError, TypeError):
-        await _cmd_reply(
-            update.effective_message,
-            f"❌ Invalid value for {setting_name}: must be a {spec['type'].__name__}",
-        )
+        value, message = apply_text(spec, " ".join(args[1:]))
+    except ValueError as err:
+        await _cmd_reply(update.effective_message, str(err))
         return
 
-    if spec["min"] is not None and value < spec["min"]:
-        await _cmd_reply(
-            update.effective_message,
-            f"❌ Invalid value for {setting_name}: must be >= {spec['min']}",
-        )
-        return
-    if spec["max"] is not None and value > spec["max"]:
-        await _cmd_reply(
-            update.effective_message,
-            f"❌ Invalid value for {setting_name}: must be <= {spec['max']}",
-        )
-        return
-
-    setattr(session.settings, setting_name, value)
+    setattr(session.settings, spec.attr, value)
     store.update_session(session)
-    await _cmd_reply(update.effective_message, f"✅ {setting_name} set to {value}")
+    await _cmd_reply(update.effective_message, message)
