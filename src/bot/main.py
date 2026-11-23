@@ -29,6 +29,7 @@ from src.bot.handlers.models import (
 from src.bot.handlers.quickbar import quickbar_message_handler
 from src.bot.handlers.settings import set_command, setprompt_command
 from src.bot.handlers.status import status_command
+from src.bot.handlers.documents import document_message_handler
 from src.bot.handlers.vision import photo_message_handler
 from src.storage.session_store import SessionStoreManager
 
@@ -108,6 +109,9 @@ def register_handlers(app: Application) -> None:
     # Bottom-keyboard shortcuts must win over the generic text handler.
     app.add_handler(quickbar_message_handler())
     app.add_handler(MessageHandler(filters.PHOTO, photo_message_handler, block=False))
+    app.add_handler(
+        MessageHandler(filters.Document.ALL, document_message_handler, block=False)
+    )
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler, block=False)
     )

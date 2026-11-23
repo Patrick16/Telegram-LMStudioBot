@@ -83,6 +83,7 @@ def render_commands_list() -> str:
         if section == SECTION_CHAT:
             lines.insert(1, tr("Send any text message — chat with the model"))
             lines.insert(2, tr("Send a photo — analyze it with a vision model"))
+            lines.insert(3, tr("Send a file (text, code, PDF, DOCX) — the model reads it"))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

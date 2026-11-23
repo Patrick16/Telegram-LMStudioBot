@@ -12,14 +12,11 @@ from src.lms import sdk
 logger = logging.getLogger(__name__)
 
 
-@require_owner
-async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def model_supports_vision(message, context) -> bool:
+    """Check the bound/loaded model before anything is downloaded; replies if it cannot."""
     store = context.bot_data["store"]
     config = context.bot_data["config"]
-    message = update.effective_message
     session = inference.ensure_session(store)
-
-    # Check vision support before downloading anything.
     try:
         model_info = await sdk.get_model_info(
             session.model_identifier, host=config.LMS_HOST, port=config.LMS_PORT,
@@ -27,10 +24,29 @@ async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as exc:
         logger.warning("Could not query model info: %s", exc)
         await message.reply_text(inference.describe_error(exc))
-        return
+        return False
 
     if not bool(getattr(model_info, "vision", False)):
         await message.reply_text(tr("❌ The loaded model does not support image input."))
+        return False
+    return True
+
+
+async def run_image_bytes(message, context, data: bytes, suffix: str, caption: str) -> None:
+    """Run a vision turn on an image held in memory (e.g. a picture sent as a file)."""
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        image_path = tmp.name
+    try:
+        await inference.run_image_turn(message, context, image_path, caption)
+    finally:
+        inference.cleanup_temp_file(image_path)
+
+
+@require_owner
+async def photo_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not await model_supports_vision(message, context):
         return
 
     # Download the highest resolution photo; the temp file is removed after the turn.

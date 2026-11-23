@@ -17,6 +17,7 @@ import lmstudio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, RetryAfter, TelegramError
 
+from src.bot import files
 from src.bot.i18n import mark, tr
 from src.bot.formatting import format_stream_preview, html_to_plain
 from src.bot.responses import history_content, send_response
@@ -245,7 +246,17 @@ def _stream_args(context):
     return {"host": config.LMS_HOST, "port": config.LMS_PORT}
 
 
-async def run_text_turn(message, context, user_text: str) -> None:
+async def file_char_limit(session, context) -> int:
+    """How much file text fits in one prompt: most of the context, capped."""
+    budget = await _context_budget(session, context)
+    if not budget:
+        return files.MAX_TEXT_CHARS
+    return max(2000, min(files.MAX_TEXT_CHARS, int(budget * 0.7)))
+
+
+async def run_text_turn(
+    message, context, user_text: str, *, status: str | None = None
+) -> None:
     store = context.bot_data["store"]
     session = ensure_session(store)
 
@@ -264,8 +275,8 @@ async def run_text_turn(message, context, user_text: str) -> None:
         )
 
     await _generate(
-        message, context, session, stream, status=tr("⏳ Thinking..."), persist=persist,
-        retry_callback=CB_RETRY, retry_text=user_text,
+        message, context, session, stream, status=status or tr("⏳ Thinking..."),
+        persist=persist, retry_callback=CB_RETRY, retry_text=user_text,
     )
 
 
