@@ -76,9 +76,9 @@ async def test_reply_is_edited_live_and_final_has_regenerate_button(store, conte
 
     edits = message.placeholder.edit_text.await_args_list
     previews = [c.args[0] for c in edits[:-1]]
-    assert previews[:2] == ["Hel ▌", "Hello ▌"]  # live, with cursor, plain text
+    assert previews[:2] == ["Hel ▌", "Hello ▌"]  # live, with cursor
     for call in edits[:-1]:
-        assert "parse_mode" not in call.kwargs
+        assert call.kwargs["parse_mode"] == "HTML"
         assert call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == inference.CB_STOP
 
     final = edits[-1]

@@ -4,19 +4,10 @@ import html
 import re
 
 from src.bot.i18n import tr
+from src.bot.markdown import markdown_to_html
+
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _UNCLOSED_THINK_RE = re.compile(r"<think>.*$", re.DOTALL)
-_CODE_RE = re.compile(r"```(?:[^\n`]*)\n?(.*?)```|`([^`\n]+)`", re.DOTALL)
-
-# Markdown inline formatting — applied to HTML-escaped plain text sections
-_MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
-_MD_BOLD_ITALIC_RE = re.compile(r"\*\*\*(.+?)\*\*\*")
-_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
-# Italic only when the asterisks hug the text: "2 * 3 * 4" must stay untouched.
-_MD_ITALIC_RE = re.compile(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])")
-_MD_STRIKE_RE = re.compile(r"~~(.+?)~~")
-_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
-_SAFE_LINK_SCHEMES = ("http://", "https://", "tg://", "mailto:")
 
 
 def extract_reasoning(text: str) -> str:
@@ -36,46 +27,24 @@ def strip_think_tags(text: str) -> str:
     return text.strip()
 
 
-def _render_link(match: re.Match) -> str:
-    """Render ``[label](url)`` as an anchor, but only for safe URL schemes."""
-    label, url = match.group(1), match.group(2)
-    if not url.lower().startswith(_SAFE_LINK_SCHEMES):
-        return match.group(0)
-    return f'<a href="{url.replace(chr(34), "&quot;")}">{label}</a>'
-
-
-def _markdown_to_html(text: str) -> str:
-    """Convert common Markdown formatting to Telegram HTML tags.
-
-    Must be called on already-HTML-escaped text so that HTML special chars
-    in the original content are safe before we inject tag characters.
-    Order matters: *** before ** before * to avoid partial matches.
-    """
-    text = _MD_HEADING_RE.sub(r"<b>\1</b>", text)
-    text = _MD_BOLD_ITALIC_RE.sub(r"<b><i>\1</i></b>", text)
-    text = _MD_BOLD_RE.sub(r"<b>\1</b>", text)
-    text = _MD_ITALIC_RE.sub(r"<i>\1</i>", text)
-    text = _MD_STRIKE_RE.sub(r"<s>\1</s>", text)
-    text = _MD_LINK_RE.sub(_render_link, text)
-    return text
-
-
 _PREVIEW_LIMIT = 3900
 _CURSOR = " ▌"
 
 
 def format_stream_preview(raw_text: str) -> str:
-    """Plain-text preview of a reply that is still being generated.
+    """Telegram HTML preview of a reply that is still being generated.
 
+    Rendered like the final reply, so formatting does not "jump" when generation ends.
     Reasoning blocks are hidden; while the model is only "thinking" a short hint is shown.
     Long replies show their tail so the newest text stays visible.
     """
     visible = strip_think_tags(raw_text)
     if not visible:
         return tr("💭 Thinking…") if "<think>" in raw_text else tr("⏳ Thinking...")
-    if len(visible) > _PREVIEW_LIMIT:
-        visible = "…" + visible[-_PREVIEW_LIMIT:]
-    return visible + _CURSOR
+    rendered = markdown_to_html(visible)
+    chunks = split_message(rendered, _PREVIEW_LIMIT)
+    tail = chunks[-1] if len(chunks) == 1 else "… " + chunks[-1]
+    return tail + _CURSOR
 
 
 def html_to_plain(text: str) -> str:
@@ -109,29 +78,7 @@ def format_response(text: str, show_reasoning: bool = False) -> str:
             quote = f"<blockquote expandable>💭 {html.escape(reasoning, quote=False)}</blockquote>\n"
             return quote + format_response(cleaned)
 
-    parts: list[str] = []
-    last_index = 0
-
-    for match in _CODE_RE.finditer(cleaned):
-        plain_text = cleaned[last_index:match.start()]
-        if plain_text:
-            parts.append(_markdown_to_html(html.escape(plain_text, quote=False)))
-
-        fenced_code, inline_code = match.groups()
-        if fenced_code is not None:
-            escaped = html.escape(fenced_code, quote=False)
-            parts.append(f"<pre><code>{escaped}</code></pre>")
-        else:
-            escaped = html.escape(inline_code, quote=False)
-            parts.append(f"<code>{escaped}</code>")
-
-        last_index = match.end()
-
-    tail = cleaned[last_index:]
-    if tail:
-        parts.append(_markdown_to_html(html.escape(tail, quote=False)))
-
-    return "".join(parts) or tr("<i>(no response)</i>")
+    return markdown_to_html(cleaned) or tr("<i>(no response)</i>")
 
 
 _TELEGRAM_MAX_LENGTH = 4096

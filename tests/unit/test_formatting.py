@@ -57,7 +57,9 @@ class TestFormatResponse:
 
     def test_fenced_code_with_lang(self):
         text = "```python\nprint(1 < 2)\n```"
-        assert format_response(text) == "<pre><code>print(1 &lt; 2)\n</code></pre>"
+        assert format_response(text) == (
+            '<pre><code class="language-python">print(1 &lt; 2)\n</code></pre>'
+        )
 
     def test_fenced_multiple_blocks(self):
         text = "```\na\n```\ntext\n```\nb\n```"
@@ -129,8 +131,8 @@ class TestMarkdownEdgeCases:
     def test_arithmetic_asterisks_not_italic(self):
         assert format_response("2 * 3 * 4") == "2 * 3 * 4"
 
-    def test_bullet_list_asterisks_untouched(self):
-        assert format_response("* one\n* two") == "* one\n* two"
+    def test_bullet_list_rendered_as_bullets(self):
+        assert format_response("* one\n* two") == "• one\n• two"
 
     def test_safe_link_rendered(self):
         out = format_response("[site](https://example.com/a?b=1)")

@@ -15,10 +15,10 @@ from datetime import timedelta
 
 import lmstudio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import RetryAfter, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from src.bot.i18n import mark, tr
-from src.bot.formatting import format_stream_preview
+from src.bot.formatting import format_stream_preview, html_to_plain
 from src.bot.responses import history_content, send_response
 from src.bot.services.generation import get_generations
 from src.lms import sdk
@@ -106,6 +106,20 @@ async def _safe_edit(message, text: str, reply_markup=None) -> None:
         logger.warning("Could not edit status message: %s", exc)
 
 
+async def _edit_preview(placeholder, preview: str) -> None:
+    """Show a live preview as HTML; if Telegram rejects the markup, show it as plain text."""
+    try:
+        await placeholder.edit_text(
+            preview, parse_mode="HTML", reply_markup=generating_keyboard()
+        )
+    except BadRequest as exc:
+        if "not modified" in str(exc).lower():
+            raise
+        await placeholder.edit_text(
+            html_to_plain(preview), reply_markup=generating_keyboard()
+        )
+
+
 async def _keep_typing(message) -> None:
     """Show the "typing…" chat action until cancelled."""
     while True:
@@ -155,9 +169,7 @@ async def _generate(
                         continue
                     last_edit = now
                     try:
-                        await placeholder.edit_text(
-                            preview, reply_markup=generating_keyboard()
-                        )
+                        await _edit_preview(placeholder, preview)
                         shown = preview
                     except RetryAfter as exc:
                         wait = exc.retry_after
